@@ -45,7 +45,14 @@ Post a trade:
 curl -i -X POST http://localhost:8081/api/v1/trades -H 'Content-Type: application/json' -d '{"tradeId":"T1","version":1,"counterPartyId":"CP-1","bookId":"B1","maturityDate":"2030-05-20"}'
 ```
 
-Or open the dashboard and press **Start run** in the simulator panel.
+Or open the dashboard and use the simulator panel:
+
+- **Quick run** opens a dialog for the bulk settings: number of trades, rate, and the percentage of
+  higher-version, same-version, lower-version and past-maturity trades.
+- **Detailed run** opens a dialog with the same volume and mix (as sliders) plus the variety of the
+  trades: counter-party ids, book ids, how many days ahead maturity dates fall, and a trade id prefix.
+  Leave the lists blank to use the built-in pools. Reusing a prefix from an earlier run continues the
+  same trade ids, so the store replaces or rejects them by version.
 
 ## Develop
 

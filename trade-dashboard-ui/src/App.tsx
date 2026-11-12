@@ -92,6 +92,7 @@ export default function App() {
   const onStart = async (request: SimulationRequest) => {
     try {
       setSimulation(await startSimulation(request));
+      setError(null);
     } catch {
       setError('The simulator refused the run. Check the values and try again.');
     }

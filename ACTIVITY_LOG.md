@@ -156,3 +156,16 @@ Earlier note about CVE-2026-68525 having no fixed Tomcat version is superseded: 
 
 To regenerate the PDF after editing `docs/hld/hld.html`:
 `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --no-pdf-header-footer --print-to-pdf=docs/Trade-Store-HLD.pdf file://$PWD/docs/hld/hld.html`
+
+### Prompt 7 (verbatim)
+
+> On the UI change Trade simulator - Provide two buttons which launch a modal with form to supply Trade inputs. One Button shows the current form, second button shows more specific and detailed input elements so user can select variation in trades posted
+
+| # | Action | Result |
+|---|---|---|
+| 49 | Interpreted "more specific and detailed input elements ... variation in trades posted" as choosing the variety of the generated trades, not posting one hand-typed trade | Say so if a single manual trade form is wanted as well |
+| 50 | Simulator tests written and committed first (red), then implemented: optional `counterParties`, `books`, `minMaturityDays`, `maxMaturityDays`, `tradeIdPrefix` on the run request; new `Profile` record; generator honours them; validation (names not blank, window ordered, prefix `[A-Za-z0-9-]{1,16}`) | 16 simulator tests pass |
+| 51 | Dashboard tests written and committed first (red), then implemented a reusable `Modal` (Escape, click outside, focus returned), **Quick run** (current six fields) and **Detailed run** (volume, mix sliders with the remainder shown as new trades, counter-party and book lists, maturity window, id prefix) | 11 dashboard tests pass; build succeeds |
+| 52 | Rebuilt the simulator and dashboard containers; ran a detailed run through the API and opened both dialogs in the browser | Trades arrived with the chosen counter-parties, book, prefix and maturity window; dialogs render correctly |
+| 53 | Full checks | 63 backend tests pass, regression passes, `npm audit` reports 0 vulnerabilities |
+| 54 | Updated README, HLD (component, test and interface text) and re-rendered the PDF and pipeline diagram | Test counts now 63 backend and 11 dashboard |

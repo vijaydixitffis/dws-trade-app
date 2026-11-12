@@ -47,6 +47,12 @@ export interface SimulationRequest {
   sameVersionPct: number;
   lowerVersionPct: number;
   pastMaturityPct: number;
+  /** Optional variety of the generated trades; left out, the simulator uses its built-in pools. */
+  counterParties?: string[];
+  books?: string[];
+  minMaturityDays?: number;
+  maxMaturityDays?: number;
+  tradeIdPrefix?: string;
 }
 
 export interface SimulationStatus {
