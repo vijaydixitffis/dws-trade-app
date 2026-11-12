@@ -120,4 +120,5 @@ NVD_API_KEY=your-key mvn -Psecurity-scan -DskipTests verify
 - The dashboard's live feed is delivered by whichever query-service instance consumed the
   event. With several instances the dashboard still refreshes by polling every three seconds.
 - If the processor stops between committing a trade and publishing its event, the trade is
-  reprocessed on restart; the store is unchanged and the event is published then.
+  reprocessed on restart: the same data is written again and the event is then published
+  with type `REPLACED` instead of `ACCEPTED`.

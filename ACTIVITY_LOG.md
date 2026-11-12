@@ -73,3 +73,40 @@ Listed in `docs/ARCHITECTURE.md` section 11 (A1–A5). The main one: keep every 
 | 15 | Generated the code structure with Maven archetypes | Parent from `org.codehaus.mojo.archetypes:pom-root:1.1`; five modules from `maven-archetype-quickstart:1.5`; placeholder `App` classes removed |
 | 16 | Added `.mvn/jvm.config` with `-Djava.net.preferIPv4Stack=true` | Maven downloads failed with "Broken pipe" over IPv6 on this network; harmless elsewhere |
 | 17 | `git init`, remote set to the GitHub repository | Branch `main` |
+| 18 | Phase 0: parent POM, module POMs, `.gitignore`, service Dockerfile, Docker Compose | Spring Boot 3.5.16 parent; JaCoCo gate at 80 % line coverage per module; OWASP Dependency-Check in the `security-scan` profile |
+| 19 | Phase 1 (`trade-common`): tests written and committed first, then model, events, maturity rule, exceptions, business clock, Flyway schema | 8 tests pass |
+| 20 | Phases 2–4 (`trade-processor-service`): tests committed first, then trade store with atomic version guard, Kafka listener, outcome publisher, dead-letter handling, expiry job with ShedLock | 20 tests pass against real PostgreSQL and Kafka containers; 94 % line coverage |
+| 21 | Phase 3 (`trade-capture-service`): tests committed first, then REST API, immediate maturity check, batch endpoint, Kafka publisher | 8 tests pass; 92 % line coverage |
+| 22 | Phase 5 (`trade-query-service`): tests committed first, then store read API, MongoDB projection, summary, SSE live feed, CORS | 11 tests pass; 100 % line coverage |
+| 23 | Found that the `mongo:8` image will not start on this Docker Desktop kernel (MongoDB SERVER-121912) | Switched tests and Compose to `mongo:8.2`, which starts |
+| 24 | Phase 6 (`trade-simulator`): tests committed first, then scenario generator, paced runner, control API | 7 tests pass; 92 % line coverage |
+| 25 | Phase 7 (`trade-dashboard-ui`): React + Vite + TypeScript, plain CSS in blue, grey and white | 6 component tests pass; production build succeeds. Tests and components were written together and committed in one commit, not test-first |
+| 26 | `npm audit` reported 2 critical findings in the test tooling (tinypool via vitest 3) | Upgraded vitest to 5, vite to 8, jsdom to 31; audit now reports 0 vulnerabilities |
+| 27 | Phase 8: `.github/workflows/ci.yml` and `deploy/regression.sh` | Jobs: backend tests, dashboard tests, vulnerability scan (Trivy + `npm audit`, OWASP Dependency-Check when `NVD_API_KEY` is set), end-to-end regression |
+| 28 | Full `mvn clean verify` | 54 backend tests pass; every module is above the coverage gate |
+| 29 | Wrote `README.md` | Run, develop, test and pipeline instructions; known limits |
+
+### How TDD was applied
+
+For each backend phase the test classes were written first and committed with a `test: ... (red)` message, then the implementation was written until they passed and committed with `feat: ... (green)`. `git log` shows the order. The exception is the dashboard (action 25).
+
+### Deviations from the plan
+
+- The processor consumes one record at a time per partition thread, not in batches. It is simpler to reason about for retries and dead-lettering; batching is a tuning step for phase 9.
+- MongoDB 8.2 instead of 8 (action 23).
+- Trivy is the default vulnerability scanner in the pipeline, with OWASP Dependency-Check running only when an NVD API key is configured.
+
+
+### Verification of the running system
+
+| # | Action | Result |
+|---|---|---|
+| 30 | `docker compose -f deploy/docker-compose.yml up --build -d` | All eight containers started; Kafka, PostgreSQL and MongoDB healthy |
+| 31 | `deploy/regression.sh` against the running stack | 17 of 17 checks pass, including a 500-trade simulator run |
+| 32 | Opened the dashboard at http://localhost:8080 | Summary tiles, simulator panel, trade table and live indicator render; containers report the business zone as `Etc/UTC` because that is the container's own zone (set `TZ` or `TRADE_BUSINESS_ZONE` to change it) |
+| 33 | Pushed `main` to https://github.com/vijaydixitffis/dws-trade-app | See the Actions tab for the pipeline result |
+
+### Not done
+
+- Phase 9 (load run with recorded throughput figures, tuning, class diagrams).
+- OWASP Dependency-Check has not been run: it needs an NVD API key. Trivy has not been run locally; it runs in the pipeline.
