@@ -126,6 +126,11 @@ In Eclipse: right-click the parent project (`dws-trade-app`) → Run As → Mave
 `exec:exec@docker-up`, Profiles to `docker`, and tick "Non-recursive". Then open
 http://localhost:8080 and sign in as `admin` / `admin@2026!`.
 
+If Eclipse reports `Cannot run program "docker"`, Docker is not on the PATH of the Eclipse process
+(common on macOS when Eclipse is started from the Dock). The `docker` profile already uses Docker
+Desktop's standard locations on macOS; if Docker is installed elsewhere, add the Maven argument
+`-Ddocker.executable=/full/path/to/docker` (in Eclipse: Parameter Name `docker.executable`).
+
 ### Eclipse
 
 File → Import → Maven → Existing Maven Projects, select the repository root and import the

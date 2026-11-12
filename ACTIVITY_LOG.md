@@ -277,3 +277,12 @@ Known limits of this step: one shared account, no roles, no TLS, and the passwor
 |---|---|---|
 | 94 | Told the user no Maven goal started Docker; added a `docker` profile to the parent POM with `exec:exec@docker-up` and `exec:exec@docker-down` (exec-maven-plugin 3.7.0, `docker compose up --build -d --wait`) | Run non-recursively (`-N`) on the parent project; README has the Eclipse steps |
 | 95 | `--wait` exposed a defect: the dashboard container reported unhealthy although it served pages, because inside the container `localhost` resolves to IPv6 first and nginx listens on IPv4 only | Health check now uses `127.0.0.1`; the container is healthy and the start goal succeeds. CI had not caught it because it did not use `--wait` |
+
+### Prompt 15 (verbatim)
+
+> I get [INFO] --- exec:3.7.0:exec (docker-up) @ dws-trade-app --- [ERROR] Command execution failed. java.io.IOException: Cannot run program "docker" (in directory "/Users/vijaykumardixit/eclipse-workspace/dws-trading-assignment"): error=2, No such file or directory
+
+| # | Action | Result |
+|---|---|---|
+| 96 | Diagnosed: Eclipse started from the Dock or Finder has a minimal PATH without `/usr/local/bin`; the shell that worked for me has it. `docker compose` also needs its helper programs on PATH | Confirmed by running `env -i PATH=/usr/bin:/bin:...` where `docker` is not found |
+| 97 | The `docker` profile now takes the program from `docker.executable` (full path `/Applications/Docker.app/Contents/Resources/bin/docker` on macOS through an OS-activated profile) and sets PATH for the child process to include Docker's folders | Tested under a stripped-down environment: BUILD SUCCESS, all containers healthy, dashboard returns 200 with the login. Not tested inside Eclipse itself |
