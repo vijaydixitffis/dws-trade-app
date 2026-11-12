@@ -18,9 +18,10 @@ public class TradeGenerator {
 
     private static final int COUNTER_PARTIES = 50;
     private static final int BOOKS = 10;
-    private static final int MAX_MATURITY_DAYS = 3650;
+    private static final int MAX_PAST_DAYS = 3650;
 
     private final Mix mix;
+    private final Profile profile;
     private final String runId;
     private final LocalDate today;
     private final Random random;
@@ -30,7 +31,12 @@ public class TradeGenerator {
     private int lowerVersionTarget = -1;
 
     public TradeGenerator(Mix mix, String runId, LocalDate today, Random random) {
+        this(mix, Profile.defaults(), runId, today, random);
+    }
+
+    public TradeGenerator(Mix mix, Profile profile, String runId, LocalDate today, Random random) {
         this.mix = mix;
+        this.profile = profile;
         this.runId = runId;
         this.today = today;
         this.random = random;
@@ -57,7 +63,7 @@ public class TradeGenerator {
                 // A fresh id that is never reused, so it does not disturb the version bookkeeping.
                 String id = "%s-OLD-%d-%d".formatted(runId, highestVersion.size(), random.nextInt(1_000_000));
                 yield new Generated(scenario, new Trade(id, 1, counterParty(), book(),
-                        today.minusDays(1 + random.nextInt(MAX_MATURITY_DAYS))));
+                        today.minusDays(1 + random.nextInt(MAX_PAST_DAYS))));
             }
             case NEW_TRADE -> {
                 highestVersion.add(1);
@@ -112,14 +118,19 @@ public class TradeGenerator {
     }
 
     private LocalDate futureDate() {
-        return today.plusDays(1 + random.nextInt(MAX_MATURITY_DAYS));
+        int span = profile.maxMaturityDays() - profile.minMaturityDays() + 1;
+        return today.plusDays(profile.minMaturityDays() + random.nextInt(span));
     }
 
     private String counterParty() {
-        return "CP-" + (1 + random.nextInt(COUNTER_PARTIES));
+        return pick(profile.counterParties(), () -> "CP-" + (1 + random.nextInt(COUNTER_PARTIES)));
     }
 
     private String book() {
-        return "B" + (1 + random.nextInt(BOOKS));
+        return pick(profile.books(), () -> "B" + (1 + random.nextInt(BOOKS)));
+    }
+
+    private String pick(List<String> choices, java.util.function.Supplier<String> fallback) {
+        return choices.isEmpty() ? fallback.get() : choices.get(random.nextInt(choices.size()));
     }
 }

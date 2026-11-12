@@ -58,7 +58,8 @@ public class SimulationRunner {
     }
 
     private void run(String runId, SimulationRequest request) {
-        TradeGenerator generator = new TradeGenerator(request.mix(), runId, LocalDate.now(clock), new Random());
+        TradeGenerator generator = new TradeGenerator(request.mix(), request.profile(), request.idPrefix(runId),
+                LocalDate.now(clock), new Random());
         Map<Scenario, Long> byScenario = new EnumMap<>(Scenario.class);
         Instant startedAt = status.startedAt();
         long sent = 0;
