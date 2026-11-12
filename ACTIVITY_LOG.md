@@ -181,3 +181,18 @@ To regenerate the PDF after editing `docs/hld/hld.html`:
 | 55 | Added "Submitted by: Vijaykumar Dixit" to the HLD title page and "Submitted by Vijaykumar Dixit" to the footer of every page after the title page (the title page itself has no footer) | PDF re-rendered |
 | 56 | Brought this activity log up to date and committed it | This entry |
 | 57 | Created and pushed the tag `mvp1-dev-12Nov10pm` on the commit that contains this entry | Tag points at the final commit of this step |
+
+## Session 3 — 2026-11-12 — Code review
+
+### Prompt 9 (verbatim)
+
+> You are a senior lead developer with 20+ years experience in building Java with full stack distributed async and high throughput low latency systems. Do a thorough code review of this project including UI, API, Backend, middleware and DB layers and create a md file of review report and identify clearly categorized issues and their fixes
+
+| # | Action | Result |
+|---|---|---|
+| 58 | Reviewed all source and configuration (about 4,600 lines) at commit `e39d3d8` | 49 findings: 0 critical, 9 high, 21 medium, 19 low, in eight categories |
+| 59 | Reproduced four suspected defects on the running Compose stack | Confirmed: an 87-character trade id gets HTTP 202 and is then dead-lettered with no rejection record; the simulator sends 30 trades "at 1 per second" in 4 s; the trade-list query runs as a sequential scan plus sort; MongoDB stores dates as midnight instants |
+| 60 | Wrote `docs/CODE_REVIEW.md` | Each finding has a severity, evidence label (confirmed or by inspection), and a fix; a suggested order of work is included |
+| 61 | No code was changed | The review is a report only. The tag `mvp1-dev-12Nov10pm` still points at `e39d3d8`, the reviewed commit |
+
+Side effects of the checks on the local demo stack: one oversized test trade on the dead-letter topic and 30 simulator trades in the store.
