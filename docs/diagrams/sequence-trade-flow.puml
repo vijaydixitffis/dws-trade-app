@@ -1,0 +1,41 @@
+@startuml sequence-trade-flow
+title Trade Store - Trade Flow
+autonumber
+
+participant "Simulator" as sim
+participant "Capture API" as cap
+queue "Kafka" as k
+participant "Processor" as proc
+database "PostgreSQL" as pg
+participant "Query service" as q
+database "MongoDB" as mongo
+participant "Dashboard" as ui
+
+sim -> cap : POST /api/v1/trades
+alt maturityDate < today
+  cap -> k : trades.rejected (MATURITY_DATE_PASSED)
+  cap --> sim : 422 Unprocessable Entity
+else structurally valid
+  cap -> k : trades.inbound (key = tradeId)
+  cap --> sim : 202 Accepted
+end
+
+k -> proc : consume batch
+proc -> proc : re-check maturity
+proc -> pg : upsert trade_latest\nWHERE latest_version <= incoming
+
+alt 1 row affected (higher or equal version)
+  proc -> pg : upsert trade (trade_id, version)
+  proc -> pg : commit
+  proc -> k : trades.events (ACCEPTED or REPLACED)
+else 0 rows affected (lower version)
+  proc -> proc : throw LowerVersionTradeException
+  proc -> pg : rollback
+  proc -> k : trades.rejected (LOWER_VERSION)
+end
+proc -> k : commit offset
+
+k -> q : trades.events, trades.rejected
+q -> mongo : upsert by Kafka position
+q -> ui : Server-Sent Event
+@enduml

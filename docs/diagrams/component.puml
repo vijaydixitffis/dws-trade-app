@@ -1,0 +1,38 @@
+@startuml component
+!pragma layout smetana
+title Trade Store - Component View
+skinparam componentStyle rectangle
+left to right direction
+
+actor "Operations user" as user
+
+component "trade-simulator\n(Spring Boot)" as sim
+component "trade-dashboard-ui\n(React)" as ui
+component "trade-capture-service\n(Spring Boot REST)" as capture
+component "trade-processor-service\n(Spring Boot, Kafka consumer,\nexpiry scheduler)" as processor
+component "trade-query-service\n(Spring Boot REST + SSE)" as query
+
+queue "trades.inbound\n(key = tradeId)" as inbound
+queue "trades.events" as events
+queue "trades.rejected" as rejected
+queue "trades.inbound.DLT" as dlt
+
+database "PostgreSQL\ntrade store" as pg
+database "MongoDB\nevents, rejections" as mongo
+
+user --> ui
+ui --> sim : start / stop load
+ui --> query : REST, SSE
+sim --> capture : POST /api/v1/trades
+capture --> inbound : valid trade
+capture --> rejected : past maturity (HTTP 422)
+inbound --> processor
+processor --> pg : atomic version check,\nupsert, mark expired
+processor --> events : ACCEPTED, REPLACED, EXPIRED
+processor --> rejected : lower version,\npast maturity
+processor --> dlt : technical failure
+events --> query
+rejected --> query
+query --> mongo : project
+query --> pg : read trades
+@enduml

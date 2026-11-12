@@ -1,0 +1,24 @@
+@startuml sequence-expiry
+title Trade Store - Automatic Expiry
+autonumber
+
+participant "Scheduler\n(processor instance)" as sch
+database "PostgreSQL" as pg
+queue "Kafka" as k
+participant "Query service" as q
+database "MongoDB" as mongo
+
+sch -> pg : acquire ShedLock "trade-expiry"
+alt lock acquired
+  loop until no rows remain
+    sch -> pg : UPDATE trade SET expired = 'Y'\nWHERE maturity_date < today\nAND expired = 'N' (batch)
+    sch -> k : trades.events (EXPIRED) per trade
+  end
+  sch -> pg : release lock
+else another instance holds the lock
+  sch -> sch : skip this run
+end
+
+k -> q : trades.events
+q -> mongo : upsert event
+@enduml
