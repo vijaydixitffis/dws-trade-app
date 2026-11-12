@@ -15,6 +15,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaOperations;
@@ -24,7 +25,7 @@ import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.util.backoff.FixedBackOff;
+import org.springframework.util.backoff.ExponentialBackOff;
 
 @Configuration
 @EnableScheduling
@@ -58,17 +59,24 @@ public class ProcessorConfig {
     }
 
     /**
-     * Technical failures are retried, then the record is parked on the dead-letter topic so
-     * the partition keeps moving. Unreadable or malformed records are parked at once.
+     * Records that can never succeed (unreadable, or violating a database constraint) are parked
+     * on the dead-letter topic at once. Every other failure is treated as an outage of a
+     * dependency: it is retried with exponential back-off for up to {@code max-elapsed-ms}, which
+     * holds the partition, so a database restart delays trades instead of dead-lettering them.
      */
     @Bean
     CommonErrorHandler errorHandler(KafkaOperations<String, String> kafka,
-            @Value("${trade.retry.interval-ms}") long intervalMs,
-            @Value("${trade.retry.max-attempts}") long maxAttempts) {
+            @Value("${trade.retry.initial-interval-ms}") long initialIntervalMs,
+            @Value("${trade.retry.max-interval-ms}") long maxIntervalMs,
+            @Value("${trade.retry.max-elapsed-ms}") long maxElapsedMs) {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafka,
                 (record, exception) -> new TopicPartition(Topics.INBOUND_DLT, 0));
-        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(intervalMs, maxAttempts));
-        handler.addNotRetryableExceptions(JacksonException.class, IllegalArgumentException.class);
+        ExponentialBackOff backOff = new ExponentialBackOff(initialIntervalMs, 2.0);
+        backOff.setMaxInterval(maxIntervalMs);
+        backOff.setMaxElapsedTime(maxElapsedMs);
+        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff);
+        handler.addNotRetryableExceptions(JacksonException.class, IllegalArgumentException.class,
+                DataIntegrityViolationException.class);
         return handler;
     }
 

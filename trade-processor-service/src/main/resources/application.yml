@@ -34,8 +34,12 @@ trade:
     cron: "0 1 0 * * *"
     batch-size: 500
   retry:
-    interval-ms: 1000
-    max-attempts: 3
+    # Failures other than unreadable records and constraint violations are retried with
+    # exponential back-off, so a short database or broker outage only delays trades.
+    initial-interval-ms: 500
+    max-interval-ms: 30000
+    # After this long without success the record is parked on the dead-letter topic.
+    max-elapsed-ms: 600000
 
 management:
   endpoints:

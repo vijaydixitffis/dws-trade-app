@@ -162,6 +162,9 @@ class SimulationControllerTest {
         List<Integer> batchSizes = new java.util.concurrent.CopyOnWriteArrayList<>();
         when(capture.send(anyList())).thenAnswer(call -> {
             List<Trade> trades = call.getArgument(0);
+            if (batchSizes.isEmpty()) {
+                Thread.sleep(300); // a slow first call leaves a backlog that must be sent in chunks
+            }
             batchSizes.add(trades.size());
             return new CaptureClient.Outcome(trades.size(), 0);
         });
@@ -171,7 +174,7 @@ class SimulationControllerTest {
                 .andExpect(status().isAccepted());
 
         await().atMost(Duration.ofSeconds(20)).until(() -> !runner.status().running());
-        assertThat(batchSizes).isNotEmpty().allSatisfy(size -> assertThat(size).isLessThanOrEqualTo(1000));
+        assertThat(batchSizes).isNotEmpty().contains(1000).allSatisfy(size -> assertThat(size).isLessThanOrEqualTo(1000));
         assertThat(batchSizes.stream().mapToInt(Integer::intValue).sum()).isEqualTo(4000);
     }
 

@@ -21,8 +21,10 @@ import org.springframework.stereotype.Service;
 public class SimulationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(SimulationRunner.class);
-    /** Batches are sent ten times a second. */
-    private static final long TICK_MILLIS = 100;
+    /** The longest the runner sleeps, so a stop request is noticed promptly. */
+    private static final long MAX_SLEEP_MILLIS = 100;
+    /** The shortest sleep, so a very high rate is sent in sensible batches. */
+    private static final long MIN_SLEEP_MILLIS = 20;
     private static final int MAX_BATCH = 1000;
 
     private final CaptureClient capture;
@@ -66,26 +68,36 @@ public class SimulationRunner {
         long accepted = 0;
         long rejected = 0;
         String error = null;
-        int perTick = Math.clamp(Math.round(request.ratePerSecond() * TICK_MILLIS / 1000.0), 1, MAX_BATCH);
+        long startNanos = System.nanoTime();
         try {
             while (sent < request.count() && !stopRequested) {
-                long tickStart = System.nanoTime();
-                int size = (int) Math.min(perTick, request.count() - sent);
-                List<Trade> batch = new ArrayList<>(size);
-                for (int i = 0; i < size; i++) {
-                    TradeGenerator.Generated generated = generator.next();
-                    byScenario.merge(generated.scenario(), 1L, Long::sum);
-                    batch.add(generated.trade());
+                // The schedule is the number of trades that should have been sent by now. Working
+                // from elapsed time keeps the rate exact at any speed, and a slow capture API is
+                // followed by a catch-up burst, never by a permanently lower rate.
+                double elapsedSeconds = (System.nanoTime() - startNanos) / 1e9;
+                long due = Math.min((long) (elapsedSeconds * request.ratePerSecond()), request.count());
+                long toSend = due - sent;
+                if (toSend <= 0) {
+                    long nextDueNanos = startNanos + (long) ((sent + 1) * 1e9 / request.ratePerSecond());
+                    long waitMillis = (nextDueNanos - System.nanoTime()) / 1_000_000;
+                    Thread.sleep(Math.clamp(waitMillis, MIN_SLEEP_MILLIS, MAX_SLEEP_MILLIS));
+                    continue;
                 }
-                CaptureClient.Outcome outcome = capture.send(batch);
-                sent += size;
-                accepted += outcome.accepted();
-                rejected += outcome.rejected();
-                status = new SimulationStatus(runId, true, request.count(), request.ratePerSecond(), sent, accepted,
-                        rejected, Map.copyOf(byScenario), startedAt, null, null);
-                long sleep = TICK_MILLIS - (System.nanoTime() - tickStart) / 1_000_000;
-                if (sleep > 0) {
-                    Thread.sleep(sleep);
+                while (toSend > 0 && !stopRequested) {
+                    int size = (int) Math.min(toSend, MAX_BATCH);
+                    List<Trade> batch = new ArrayList<>(size);
+                    for (int i = 0; i < size; i++) {
+                        TradeGenerator.Generated generated = generator.next();
+                        byScenario.merge(generated.scenario(), 1L, Long::sum);
+                        batch.add(generated.trade());
+                    }
+                    CaptureClient.Outcome outcome = capture.send(batch);
+                    sent += size;
+                    toSend -= size;
+                    accepted += outcome.accepted();
+                    rejected += outcome.rejected();
+                    status = new SimulationStatus(runId, true, request.count(), request.ratePerSecond(), sent,
+                            accepted, rejected, Map.copyOf(byScenario), startedAt, null, null);
                 }
             }
         } catch (InterruptedException e) {

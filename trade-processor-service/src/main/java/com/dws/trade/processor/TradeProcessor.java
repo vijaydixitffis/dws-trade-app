@@ -1,5 +1,6 @@
 package com.dws.trade.processor;
 
+import com.dws.trade.event.RejectionReason;
 import com.dws.trade.event.TradeEvent;
 import com.dws.trade.event.TradeEventType;
 import com.dws.trade.event.TradeRejection;
@@ -48,6 +49,14 @@ public class TradeProcessor {
                     TradeRejection.SOURCE_PROCESSOR, clock.instant()));
             count(e.reason().name());
         }
+    }
+
+    /** Records a readable trade that failed validation; it never reaches the store. */
+    public void rejectInvalid(Trade trade, String eventId, String message) {
+        log.warn("Rejected: {}", message);
+        publisher.rejection(new TradeRejection(eventId, RejectionReason.INVALID_TRADE, message, trade,
+                TradeRejection.SOURCE_PROCESSOR, clock.instant()));
+        count(RejectionReason.INVALID_TRADE.name());
     }
 
     private void count(String outcome) {
