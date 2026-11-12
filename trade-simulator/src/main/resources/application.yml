@@ -1,0 +1,27 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: trade-simulator
+  threads:
+    virtual:
+      enabled: true
+  mvc:
+    problemdetails:
+      enabled: true
+
+simulator:
+  capture-url: http://localhost:8081
+
+trade:
+  # Time zone that defines "today" for generated maturity dates. Empty = the server's own zone.
+  business-zone: ""
+  cors:
+    allowed-origins: http://localhost:5173,http://localhost:8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
