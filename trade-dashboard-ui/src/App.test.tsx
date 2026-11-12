@@ -11,12 +11,14 @@ const summary = {
   replaced: 1,
   rejectedLowerVersion: 2,
   rejectedMaturityPassed: 5,
+  rejectedInvalid: 7,
 };
 
 const trades = {
   total: 3,
-  page: 0,
+  totalExact: true,
   size: 25,
+  next: null,
   items: [
     { tradeId: 'T1', version: 1, counterPartyId: 'CP-1', bookId: 'B1', maturityDate: '2027-05-20', createdDate: '2026-11-12', expired: false },
     { tradeId: 'T2', version: 2, counterPartyId: 'CP-2', bookId: 'B1', maturityDate: '2027-05-20', createdDate: '2026-11-12', expired: false },
@@ -46,6 +48,11 @@ function stubFetch(overrides: Record<string, unknown> = {}) {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       calls.push({ url, init });
+      const custom = (overrides.handler as ((url: string) => unknown) | undefined)?.(url);
+      if (custom !== undefined) {
+        const resolved = await custom;
+        return { ok: true, status: 200, json: async () => resolved } as Response;
+      }
       const refused = overrides.postResponse as { ok: boolean; status: number; body: unknown } | undefined;
       if (refused && init?.method === 'POST') {
         return { ok: refused.ok, status: refused.status, json: async () => refused.body } as Response;
@@ -93,7 +100,7 @@ test('lists rejected trades with the reason on the Rejections tab', async () => 
 
   await userEvent.click(screen.getByRole('tab', { name: 'Rejections' }));
 
-  expect(screen.getByText('Lower version')).toBeInTheDocument();
+  expect(await screen.findByText('Lower version')).toBeInTheDocument();
   expect(screen.getByText('Trade store')).toBeInTheDocument();
   expect(screen.getByText('Trade T2 version 1 is lower than the stored version 2')).toBeInTheDocument();
 });
@@ -310,8 +317,108 @@ test('detailed run refuses an unsafe prefix, a window over 3,650 days and oversi
   expect(start).toBeDisabled();
 });
 
+function slow<T>(body: T, millis: number): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(body), millis));
+}
+
+test('waits for a pause in typing before asking for a filtered list', async () => {
+  stubFetch();
+  render(<App />);
+  await screen.findByText('T1');
+
+  await userEvent.type(screen.getByPlaceholderText('e.g. T2'), 'T2');
+
+  await waitFor(() => expect(calls.some((call) => call.url.includes('tradeId=T2'))).toBe(true));
+  expect(calls.some((call) => /tradeId=T(&|$)/.test(call.url))).toBe(false);
+});
+
+test('ignores a slow answer to a request that has since been replaced', async () => {
+  const old = { ...trades, items: [{ ...trades.items[0], tradeId: 'OLD1' }] };
+  const fresh = { ...trades, items: [{ ...trades.items[0], tradeId: 'NEW1' }] };
+  stubFetch({
+    handler: (url: string) => {
+      if (!url.includes('/trades?')) {
+        return undefined;
+      }
+      return url.includes('tradeId=N') ? fresh : slow(old, 800);
+    },
+  });
+  render(<App />);
+
+  await userEvent.type(screen.getByPlaceholderText('e.g. T2'), 'N');
+  expect(await screen.findByText('NEW1')).toBeInTheDocument();
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  expect(screen.queryByText('OLD1')).not.toBeInTheDocument();
+  expect(screen.getByText('NEW1')).toBeInTheDocument();
+});
+
+test('cancels the previous request when a new one starts', async () => {
+  stubFetch();
+  render(<App />);
+  await screen.findByText('T1');
+  const first = calls.map((call) => call.init?.signal as AbortSignal | undefined).filter(Boolean) as AbortSignal[];
+
+  await userEvent.type(screen.getByPlaceholderText('e.g. T2'), 'T2');
+  await waitFor(() => expect(calls.some((call) => call.url.includes('tradeId=T2'))).toBe(true));
+
+  expect(first.length).toBeGreaterThan(0);
+  first.forEach((signal) => expect(signal.aborted).toBe(true));
+});
+
+test('moves through the store with Next and Previous using the cursor from the server', async () => {
+  const pageOne = { ...trades, total: 30, next: { tradeId: 'T3', version: 3 } };
+  const pageTwo = { ...trades, total: 30, items: [{ ...trades.items[2], tradeId: 'T4' }], next: null };
+  stubFetch({
+    handler: (url: string) => (url.includes('/trades?') ? (url.includes('afterTradeId=T3') ? pageTwo : pageOne) : undefined),
+  });
+  render(<App />);
+  await screen.findByText('T1');
+  expect(screen.getByText('Page 1')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+  expect(await screen.findByText('T4')).toBeInTheDocument();
+  expect(calls.some((call) => call.url.includes('afterTradeId=T3&afterVersion=3'))).toBe(true);
+  expect(screen.getByText('Page 2')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Previous' }));
+
+  expect(await screen.findByText('T1')).toBeInTheDocument();
+  expect(screen.getByText('Page 1')).toBeInTheDocument();
+});
+
+test('shows a capped count as 10,000+', async () => {
+  stubFetch({ trades: { ...trades, total: 10000, totalExact: false } });
+  render(<App />);
+
+  expect(await screen.findByText(/10,000\+ rows/)).toBeInTheDocument();
+});
+
+test('loads rejections only when their tab is open', async () => {
+  stubFetch();
+  render(<App />);
+  await screen.findByText('T1');
+  expect(calls.some((call) => call.url.includes('/rejections'))).toBe(false);
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Rejections' }));
+
+  expect(await screen.findByText('Lower version')).toBeInTheDocument();
+  expect(calls.some((call) => call.url.includes('/rejections'))).toBe(true);
+});
+
+test('shows how many trades were rejected as invalid', async () => {
+  stubFetch();
+  render(<App />);
+
+  const tiles = await screen.findByLabelText('Summary');
+  expect(within(tiles).getByText('Rejected: invalid trade').previousSibling).toHaveTextContent('7');
+});
+
 test('says so when the store is empty', async () => {
-  stubFetch({ trades: { total: 0, page: 0, size: 25, items: [] } });
+  stubFetch({ trades: { total: 0, totalExact: true, size: 25, next: null, items: [] } });
   render(<App />);
 
   expect(await screen.findByText('No trades in the store yet.')).toBeInTheDocument();
