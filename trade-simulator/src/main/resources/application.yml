@@ -17,6 +17,8 @@ spring:
 
 simulator:
   capture-url: http://localhost:8081
+  # The largest run this installation accepts. The simulator is for test environments only.
+  max-count: 1000000
 
 trade:
   # Time zone that defines "today" for generated maturity dates. Empty = the server's own zone.

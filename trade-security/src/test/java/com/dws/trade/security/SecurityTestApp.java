@@ -37,9 +37,4 @@ public class SecurityTestApp {
     String stopSimulation() {
         return "stopped";
     }
-
-    @GetMapping("/api/v1/unlisted")
-    String unlisted() {
-        return "should never be reachable";
-    }
 }

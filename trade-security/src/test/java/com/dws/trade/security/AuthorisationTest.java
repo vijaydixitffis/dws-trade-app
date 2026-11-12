@@ -90,9 +90,10 @@ class AuthorisationTest {
     }
 
     @Test
-    void anythingNotListedIsRefusedEvenForTheAdministrator() throws Exception {
-        mvc.perform(get("/api/v1/unlisted").with(as("admin", "admin@2026!"))).andExpect(status().isForbidden());
-        mvc.perform(get("/api/v1/unlisted")).andExpect(status().isUnauthorized());
+    void anythingOutsideTheListedRulesIsRefusedEvenForTheAdministrator() throws Exception {
+        mvc.perform(get("/internal/secret").with(as("admin", "admin@2026!"))).andExpect(status().isForbidden());
+        mvc.perform(post("/anything").with(as("admin", "admin@2026!"))).andExpect(status().isForbidden());
+        mvc.perform(get("/internal/secret")).andExpect(status().isUnauthorized());
     }
 
     @Test
