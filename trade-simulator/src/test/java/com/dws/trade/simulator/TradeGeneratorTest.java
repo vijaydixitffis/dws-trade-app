@@ -7,6 +7,7 @@ import com.dws.trade.model.Trade;
 import java.time.LocalDate;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import org.junit.jupiter.api.Test;
@@ -70,5 +71,61 @@ class TradeGeneratorTest {
         assertThat(counts.get(Scenario.HIGHER_VERSION) * 100.0 / total).isCloseTo(20, within(2.0));
         assertThat(counts.get(Scenario.SAME_VERSION) * 100.0 / total).isCloseTo(10, within(2.0));
         assertThat(counts.get(Scenario.LOWER_VERSION) * 100.0 / total).isCloseTo(10, within(3.0));
+    }
+
+    @Test
+    void usesOnlyTheSuppliedCounterPartiesAndBooks() {
+        Profile profile = new Profile(List.of("ACME", "GLOBEX"), List.of("EQ-1"), 1, 3650);
+        TradeGenerator generator = new TradeGenerator(new Mix(20, 10, 10, 10), profile, "RUN", TODAY, new Random(7));
+
+        for (int i = 0; i < 500; i++) {
+            Trade trade = generator.next().trade();
+            assertThat(trade.counterPartyId()).isIn("ACME", "GLOBEX");
+            assertThat(trade.bookId()).isEqualTo("EQ-1");
+        }
+    }
+
+    @Test
+    void futureMaturityDatesStayInsideTheRequestedWindow() {
+        Profile profile = new Profile(List.of(), List.of(), 30, 40);
+        TradeGenerator generator = new TradeGenerator(new Mix(20, 10, 10, 10), profile, "RUN", TODAY, new Random(7));
+
+        for (int i = 0; i < 1000; i++) {
+            TradeGenerator.Generated g = generator.next();
+            if (g.scenario() == Scenario.PAST_MATURITY) {
+                assertThat(g.trade().maturityDate()).isBefore(TODAY);
+            } else {
+                assertThat(g.trade().maturityDate()).isBetween(TODAY.plusDays(30), TODAY.plusDays(40));
+            }
+        }
+    }
+
+    @Test
+    void aWindowStartingAtZeroAllowsTradesMaturingToday() {
+        Profile profile = new Profile(List.of(), List.of(), 0, 0);
+        TradeGenerator generator = new TradeGenerator(new Mix(0, 0, 0, 0), profile, "RUN", TODAY, new Random(7));
+
+        assertThat(generator.next().trade().maturityDate()).isEqualTo(TODAY);
+    }
+
+    @Test
+    void emptyListsFallBackToTheBuiltInCounterPartiesAndBooks() {
+        TradeGenerator generator = new TradeGenerator(new Mix(0, 0, 0, 0), new Profile(List.of(), List.of(), 1, 10),
+                "RUN", TODAY, new Random(7));
+
+        Trade trade = generator.next().trade();
+
+        assertThat(trade.counterPartyId()).startsWith("CP-");
+        assertThat(trade.bookId()).startsWith("B");
+    }
+
+    @Test
+    void tradeIdsStartWithTheGivenPrefix() {
+        TradeGenerator generator = new TradeGenerator(new Mix(10, 10, 10, 10), Profile.defaults(), "DEMO", TODAY,
+                new Random(7));
+
+        for (int i = 0; i < 200; i++) {
+            assertThat(generator.next().trade().tradeId()).startsWith("DEMO-");
+        }
     }
 }

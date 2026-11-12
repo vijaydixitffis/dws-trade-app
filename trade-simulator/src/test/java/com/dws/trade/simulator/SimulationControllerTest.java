@@ -97,4 +97,50 @@ class SimulationControllerTest {
         await().atMost(Duration.ofSeconds(10)).until(() -> !runner.status().running());
         assertThat(runner.status().error()).contains("connection refused");
     }
+
+    @Test
+    void sendsTradesThatFollowTheDetailedVariationInputs() throws Exception {
+        List<Trade> received = new java.util.concurrent.CopyOnWriteArrayList<>();
+        when(capture.send(anyList())).thenAnswer(call -> {
+            List<Trade> trades = call.getArgument(0);
+            received.addAll(trades);
+            return new CaptureClient.Outcome(trades.size(), 0);
+        });
+
+        mvc.perform(post("/api/v1/simulations").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"count":100,"ratePerSecond":5000,"counterParties":["ACME","GLOBEX"],"books":["EQ-1","FX-2"],
+                         "minMaturityDays":30,"maxMaturityDays":60,"tradeIdPrefix":"DEMO"}"""))
+                .andExpect(status().isAccepted());
+
+        await().atMost(Duration.ofSeconds(20)).until(() -> !runner.status().running());
+        assertThat(received).hasSize(100).allSatisfy(t -> {
+            assertThat(t.counterPartyId()).isIn("ACME", "GLOBEX");
+            assertThat(t.bookId()).isIn("EQ-1", "FX-2");
+            assertThat(t.tradeId()).startsWith("DEMO-");
+        });
+    }
+
+    @Test
+    void refusesAMaturityWindowWhoseEndIsBeforeItsStart() throws Exception {
+        mvc.perform(post("/api/v1/simulations").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"count\":10,\"ratePerSecond\":10,\"minMaturityDays\":50,\"maxMaturityDays\":10}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void refusesATradeIdPrefixWithUnsafeCharacters() throws Exception {
+        mvc.perform(post("/api/v1/simulations").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"count\":10,\"ratePerSecond\":10,\"tradeIdPrefix\":\"a b/c\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void refusesBlankCounterPartyAndBookNames() throws Exception {
+        mvc.perform(post("/api/v1/simulations").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"count\":10,\"ratePerSecond\":10,\"counterParties\":[\"ACME\",\" \"]}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/simulations").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"count\":10,\"ratePerSecond\":10,\"books\":[\"\"]}"))
+                .andExpect(status().isBadRequest());
+    }
 }
