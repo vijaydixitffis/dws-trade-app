@@ -1,0 +1,19 @@
+# Builds one Spring Boot service. Build context is the repository root.
+#   docker build -f deploy/Dockerfile.service --build-arg MODULE=trade-capture-service .
+FROM maven:3.9-eclipse-temurin-21 AS build
+ARG MODULE
+WORKDIR /src
+COPY pom.xml .
+COPY trade-common trade-common
+COPY trade-capture-service trade-capture-service
+COPY trade-processor-service trade-processor-service
+COPY trade-query-service trade-query-service
+COPY trade-simulator trade-simulator
+RUN --mount=type=cache,target=/root/.m2 mvn -q -B -pl ${MODULE} -am package -DskipTests -Djacoco.skip=true \
+ && cp ${MODULE}/target/${MODULE}-*.jar /app.jar
+
+FROM eclipse-temurin:21-jre
+RUN useradd --system --no-create-home app
+USER app
+COPY --from=build /app.jar /app.jar
+ENTRYPOINT ["java", "-jar", "/app.jar"]
