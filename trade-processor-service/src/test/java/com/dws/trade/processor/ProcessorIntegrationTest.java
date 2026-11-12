@@ -4,8 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import com.dws.trade.event.Topics;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -24,11 +22,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** Inbound topic to trade store to outcome topics, with real Kafka and PostgreSQL. */
 @SpringBootTest(properties = {
         "trade.expiry.cron=-",
-        "trade.retry.interval-ms=50",
+        "trade.retry.initial-interval-ms=50",
+        "trade.retry.max-interval-ms=500",
         "trade.business-zone=UTC"})
 class ProcessorIntegrationTest {
 
@@ -36,6 +37,9 @@ class ProcessorIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         Containers.postgres(registry);
         Containers.kafka(registry);
+        // A statement that cannot finish within two seconds fails instead of hanging, so a
+        // paused database shows up as errors that the retry policy has to ride out.
+        registry.add("spring.datasource.url", () -> Containers.POSTGRES.getJdbcUrl() + "&socketTimeout=2");
     }
 
     @Autowired
@@ -75,20 +79,33 @@ class ProcessorIntegrationTest {
                 .formatted(id, version, book, maturity);
     }
 
-    /** Polls until an outcome for the key arrives on the topic, and returns its JSON. */
-    private JsonNode awaitOutcome(String topic, String key, int occurrence) {
-        List<ConsumerRecord<String, String>> matches = new ArrayList<>();
+    private void pollMore() {
+        outcomes.poll(Duration.ofMillis(200)).forEach(received::add);
+    }
+
+    private List<ConsumerRecord<String, String>> recordsFor(String topic, String key) {
+        return received.stream().filter(r -> r.topic().equals(topic) && key.equals(r.key())).toList();
+    }
+
+    /** Polls until the n-th record for the key arrives on the topic, and returns it. */
+    private ConsumerRecord<String, String> awaitRecord(String topic, String key, int occurrence) {
         await().atMost(Duration.ofSeconds(60)).until(() -> {
-            outcomes.poll(Duration.ofMillis(200)).forEach(received::add);
-            matches.clear();
-            received.stream().filter(r -> r.topic().equals(topic) && key.equals(r.key())).forEach(matches::add);
-            return matches.size() >= occurrence;
+            pollMore();
+            return recordsFor(topic, key).size() >= occurrence;
         });
-        try {
-            return mapper.readTree(matches.get(occurrence - 1).value());
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
+        return recordsFor(topic, key).get(occurrence - 1);
+    }
+
+    private JsonNode awaitOutcome(String topic, String key, int occurrence) {
+        return mapper.readTree(awaitRecord(topic, key, occurrence).value());
+    }
+
+    private void assertNothingOn(String topic, String key) {
+        // Let anything still in flight arrive before asserting an absence.
+        for (int i = 0; i < 10; i++) {
+            pollMore();
         }
+        assertThat(recordsFor(topic, key)).isEmpty();
     }
 
     @Test
@@ -124,19 +141,57 @@ class ProcessorIntegrationTest {
     }
 
     @Test
-    void sendsUnreadableAndIncompleteMessagesToTheDeadLetterTopicAndKeepsConsuming() {
+    void unreadableMessagesGoToTheDeadLetterTopicAndConsumptionContinues() {
         String bad = "IT-BAD-" + System.nanoTime();
-        String incomplete = "IT-INC-" + System.nanoTime();
         String good = "IT-GOOD-" + System.nanoTime();
         send(bad, "this is not json");
-        send(incomplete, "{\"tradeId\":\"" + incomplete + "\",\"version\":1}");
         send(good, trade(good, 1, "B1", future));
 
-        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
-            outcomes.poll(Duration.ofMillis(200)).forEach(received::add);
-            assertThat(received).filteredOn(r -> r.topic().equals(Topics.INBOUND_DLT))
-                    .extracting(ConsumerRecord::key).contains(bad, incomplete);
-        });
+        assertThat(awaitRecord(Topics.INBOUND_DLT, bad, 1).value()).isEqualTo("this is not json");
         assertThat(awaitOutcome(Topics.EVENTS, good, 1).get("type").asText()).isEqualTo("ACCEPTED");
+    }
+
+    @Test
+    void readableButInvalidTradesAreRejectedWithAReasonNotDeadLettered() {
+        String incomplete = "IT-INC-" + System.nanoTime();
+        String tooLong = "IT-LONG-" + "X".repeat(70);
+        String good = "IT-GOOD-" + System.nanoTime();
+        send(incomplete, "{\"tradeId\":\"" + incomplete + "\",\"version\":1}");
+        send(tooLong, trade(tooLong, 1, "B1", future));
+        send(good, trade(good, 1, "B1", future));
+
+        JsonNode first = awaitOutcome(Topics.REJECTED, incomplete, 1);
+        assertThat(first.get("reason").asText()).isEqualTo("INVALID_TRADE");
+        assertThat(first.get("source").asText()).isEqualTo("PROCESSOR");
+        assertThat(first.get("message").asText()).contains("counterPartyId");
+        JsonNode second = awaitOutcome(Topics.REJECTED, tooLong, 1);
+        assertThat(second.get("reason").asText()).isEqualTo("INVALID_TRADE");
+        assertThat(second.get("message").asText()).contains("tradeId");
+
+        assertThat(awaitOutcome(Topics.EVENTS, good, 1).get("type").asText()).isEqualTo("ACCEPTED");
+        assertNothingOn(Topics.INBOUND_DLT, incomplete);
+        assertNothingOn(Topics.INBOUND_DLT, tooLong);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM trade WHERE trade_id = ?", Integer.class, tooLong)).isZero();
+    }
+
+    @Test
+    void aShortDatabaseOutageDelaysTradesButNeverDeadLettersThem() throws Exception {
+        String before = "IT-PRE-" + System.nanoTime();
+        String during = "IT-OUT-" + System.nanoTime();
+        send(before, trade(before, 1, "B1", future));
+        awaitOutcome(Topics.EVENTS, before, 1);
+
+        Containers.pause(Containers.POSTGRES);
+        try {
+            send(during, trade(during, 1, "B1", future));
+            Thread.sleep(5_000);
+        } finally {
+            Containers.resume(Containers.POSTGRES);
+        }
+
+        assertThat(awaitOutcome(Topics.EVENTS, during, 1).get("type").asText()).isEqualTo("ACCEPTED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM trade WHERE trade_id = ?", Integer.class, during))
+                .isEqualTo(1);
+        assertNothingOn(Topics.INBOUND_DLT, during);
     }
 }

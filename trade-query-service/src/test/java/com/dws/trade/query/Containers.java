@@ -1,6 +1,7 @@
 package com.dws.trade.query;
 
 import org.springframework.test.context.DynamicPropertyRegistry;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.mongodb.MongoDBContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.kafka.KafkaContainer;
@@ -36,5 +37,13 @@ public final class Containers {
             KAFKA.start();
         }
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
+    }
+
+    public static void pause(GenericContainer<?> container) {
+        container.getDockerClient().pauseContainerCmd(container.getContainerId()).exec();
+    }
+
+    public static void resume(GenericContainer<?> container) {
+        container.getDockerClient().unpauseContainerCmd(container.getContainerId()).exec();
     }
 }

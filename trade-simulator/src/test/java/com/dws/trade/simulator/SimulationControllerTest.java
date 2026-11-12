@@ -156,4 +156,55 @@ class SimulationControllerTest {
                         .content("{\"count\":10,\"ratePerSecond\":10,\"books\":[\"\"]}"))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void neverSendsMoreThanOneThousandTradesInOneBatchEvenAtAHighRate() throws Exception {
+        List<Integer> batchSizes = new java.util.concurrent.CopyOnWriteArrayList<>();
+        when(capture.send(anyList())).thenAnswer(call -> {
+            List<Trade> trades = call.getArgument(0);
+            batchSizes.add(trades.size());
+            return new CaptureClient.Outcome(trades.size(), 0);
+        });
+
+        mvc.perform(post("/api/v1/simulations").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"count\":4000,\"ratePerSecond\":20000}"))
+                .andExpect(status().isAccepted());
+
+        await().atMost(Duration.ofSeconds(20)).until(() -> !runner.status().running());
+        assertThat(batchSizes).isNotEmpty().allSatisfy(size -> assertThat(size).isLessThanOrEqualTo(1000));
+        assertThat(batchSizes.stream().mapToInt(Integer::intValue).sum()).isEqualTo(4000);
+    }
+
+    @Test
+    void honoursALowRateInsteadOfSendingAtLeastTenTradesASecond() throws Exception {
+        AtomicInteger sent = new AtomicInteger();
+        captureAcceptsEverything(sent);
+        long started = System.nanoTime();
+
+        mvc.perform(post("/api/v1/simulations").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"count\":3,\"ratePerSecond\":2}"))
+                .andExpect(status().isAccepted());
+
+        await().atMost(Duration.ofSeconds(20)).until(() -> !runner.status().running());
+        long elapsedMillis = (System.nanoTime() - started) / 1_000_000;
+        assertThat(sent.get()).isEqualTo(3);
+        // Three trades at two a second take about 1.5 s; the old pacing finished in a tenth of that.
+        assertThat(elapsedMillis).isBetween(1_000L, 6_000L);
+    }
+
+    @Test
+    void keepsToTheRequestedRateOverAFewSeconds() throws Exception {
+        AtomicInteger sent = new AtomicInteger();
+        captureAcceptsEverything(sent);
+        long started = System.nanoTime();
+
+        mvc.perform(post("/api/v1/simulations").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"count\":60,\"ratePerSecond\":20}"))
+                .andExpect(status().isAccepted());
+
+        await().atMost(Duration.ofSeconds(20)).until(() -> !runner.status().running());
+        long elapsedMillis = (System.nanoTime() - started) / 1_000_000;
+        assertThat(sent.get()).isEqualTo(60);
+        assertThat(elapsedMillis).isBetween(2_500L, 6_000L);
+    }
 }

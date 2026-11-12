@@ -142,4 +142,59 @@ class CaptureControllerTest {
         mvc.perform(post("/api/v1/trades").contentType(MediaType.APPLICATION_JSON).content(json("T1", 1, "2027-05-20")))
                 .andExpect(status().isServiceUnavailable());
     }
+
+    private static String rawTrade(String id, String counterParty, String book) {
+        return """
+                {"tradeId":"%s","version":1,"counterPartyId":"%s","bookId":"%s","maturityDate":"2027-05-20"}"""
+                .formatted(id, counterParty, book);
+    }
+
+    @Test
+    void acceptsIdsOfExactlySixtyFourCharacters() throws Exception {
+        String id = "T".repeat(64);
+
+        mvc.perform(post("/api/v1/trades").contentType(MediaType.APPLICATION_JSON)
+                        .content(rawTrade(id, "C".repeat(64), "B".repeat(64))))
+                .andExpect(status().isAccepted());
+    }
+
+    @Test
+    void refusesATradeIdLongerThanTheStoreCanHold() throws Exception {
+        mvc.perform(post("/api/v1/trades").contentType(MediaType.APPLICATION_JSON)
+                        .content(rawTrade("T".repeat(65), "CP-1", "B1")))
+                .andExpect(status().isBadRequest());
+
+        verify(publisher, never()).inbound(any());
+    }
+
+    @Test
+    void refusesACounterPartyOrBookLongerThanTheStoreCanHold() throws Exception {
+        mvc.perform(post("/api/v1/trades").contentType(MediaType.APPLICATION_JSON)
+                        .content(rawTrade("T1", "C".repeat(65), "B1")))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/trades").contentType(MediaType.APPLICATION_JSON)
+                        .content(rawTrade("T1", "CP-1", "B".repeat(65))))
+                .andExpect(status().isBadRequest());
+
+        verify(publisher, never()).inbound(any());
+    }
+
+    @Test
+    void refusesATradeIdWithSpacesOrSlashes() throws Exception {
+        for (String id : new String[] {"T 1", "T/1", "T\\1", "T1;"}) {
+            mvc.perform(post("/api/v1/trades").contentType(MediaType.APPLICATION_JSON)
+                            .content(rawTrade(id, "CP-1", "B1")))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    void refusesALongIdInsideABatchAndPublishesNothing() throws Exception {
+        String batch = "[" + json("T1", 1, "2027-05-20") + "," + rawTrade("X".repeat(70), "CP-1", "B1") + "]";
+
+        mvc.perform(post("/api/v1/trades/batch").contentType(MediaType.APPLICATION_JSON).content(batch))
+                .andExpect(status().isBadRequest());
+
+        verify(publisher, never()).inbound(any());
+    }
 }

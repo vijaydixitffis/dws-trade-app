@@ -122,6 +122,36 @@ class QueryIntegrationTest {
     }
 
     @Test
+    void keepsEventsPublishedWhileMongoDbIsUnavailable() throws Exception {
+        String id = "OUT-" + System.nanoTime();
+
+        Containers.pause(Containers.MONGO);
+        try {
+            kafka.send(Topics.EVENTS, id, event("ev-" + id, id));
+            Thread.sleep(3_000);
+        } finally {
+            Containers.resume(Containers.MONGO);
+        }
+
+        await().atMost(Duration.ofSeconds(90)).untilAsserted(() ->
+                assertThat(api().getForObject("/api/v1/events?limit=500", JsonNode.class))
+                        .anyMatch(e -> e.get("id").asText().equals("ev-" + id)));
+    }
+
+    @Test
+    void parksUnreadableEventsOnADeadLetterTopicAndKeepsProjecting() {
+        String bad = "BAD-" + System.nanoTime();
+        String good = "GOOD-" + System.nanoTime();
+        kafka.send(Topics.EVENTS, bad, "this is not json");
+        kafka.send(Topics.EVENTS, good, event("ev-" + good, good));
+
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
+                assertThat(api().getForObject("/api/v1/events?limit=500", JsonNode.class))
+                        .anyMatch(e -> e.get("id").asText().equals("ev-" + good)));
+        assertThat(DeadLetters.keys(Containers.KAFKA.getBootstrapServers(), Topics.EVENTS + ".DLT")).contains(bad);
+    }
+
+    @Test
     void refusesReadsAndTheLiveFeedWithoutCredentials() {
         assertThat(rest.getForEntity("/api/v1/trades", String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(rest.getForEntity("/api/v1/summary", String.class).getStatusCode())
