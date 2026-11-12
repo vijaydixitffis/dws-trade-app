@@ -24,33 +24,34 @@ class TradeSecurityConfigTest {
 
     @Test
     void refusesACallWithoutCredentialsAndAsksForBasicAuthentication() throws Exception {
-        mvc.perform(get("/api/v1/ping"))
+        mvc.perform(get("/api/v1/trades"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string("WWW-Authenticate", startsWith("Basic")));
     }
 
     @Test
     void acceptsTheDemoAdministrator() throws Exception {
-        mvc.perform(get("/api/v1/ping").with(httpBasic("admin", "admin@2026!")))
+        mvc.perform(get("/api/v1/trades").with(httpBasic("admin", "admin@2026!")))
                 .andExpect(status().isOk())
-                .andExpect(content().string("pong"));
+                .andExpect(content().string("read"));
     }
 
     @Test
     void refusesAWrongPasswordAndAnUnknownUser() throws Exception {
-        mvc.perform(get("/api/v1/ping").with(httpBasic("admin", "wrong"))).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/v1/ping").with(httpBasic("guest", "admin@2026!"))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/trades").with(httpBasic("admin", "wrong"))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/trades").with(httpBasic("guest", "admin@2026!"))).andExpect(status().isUnauthorized());
     }
 
     @Test
     void acceptsAnAuthenticatedPostWithoutACsrfToken() throws Exception {
-        mvc.perform(post("/api/v1/ping").with(httpBasic("admin", "admin@2026!")))
-                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/trades").with(httpBasic("admin", "admin@2026!")))
+                .andExpect(status().isOk())
+                .andExpect(content().string("write"));
     }
 
     @Test
     void refusesAPostWithoutCredentials() throws Exception {
-        mvc.perform(post("/api/v1/ping")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/trades")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -66,7 +67,7 @@ class TradeSecurityConfigTest {
 
     @Test
     void keepsNoServerSideSession() throws Exception {
-        mvc.perform(get("/api/v1/ping").with(httpBasic("admin", "admin@2026!")))
+        mvc.perform(get("/api/v1/trades").with(httpBasic("admin", "admin@2026!")))
                 .andExpect(header().doesNotExist("Set-Cookie"));
     }
 }

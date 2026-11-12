@@ -21,7 +21,7 @@ class ConfiguredCredentialsTest {
 
     @Test
     void usesTheConfiguredCredentialsInsteadOfTheDemoOnes() throws Exception {
-        mvc.perform(get("/api/v1/ping").with(httpBasic("ops", "s3cret-value"))).andExpect(status().isOk());
-        mvc.perform(get("/api/v1/ping").with(httpBasic("admin", "admin@2026!"))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/trades").with(httpBasic("ops", "s3cret-value"))).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/trades").with(httpBasic("admin", "admin@2026!"))).andExpect(status().isUnauthorized());
     }
 }
