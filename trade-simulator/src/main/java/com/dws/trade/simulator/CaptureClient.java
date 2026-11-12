@@ -1,6 +1,8 @@
 package com.dws.trade.simulator;
 
 import com.dws.trade.model.Trade;
+import com.dws.trade.security.TradeSecurityConfig;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -16,8 +18,12 @@ public class CaptureClient {
 
     private final RestClient http;
 
-    public CaptureClient(RestClient.Builder builder, @Value("${simulator.capture-url}") String captureUrl) {
-        this.http = builder.baseUrl(captureUrl).build();
+    public CaptureClient(RestClient.Builder builder, @Value("${simulator.capture-url}") String captureUrl,
+            @Value("${trade.security.username:" + TradeSecurityConfig.DEMO_USERNAME + "}") String username,
+            @Value("${trade.security.password:" + TradeSecurityConfig.DEMO_PASSWORD + "}") String password) {
+        this.http = builder.baseUrl(captureUrl)
+                .defaultHeaders(headers -> headers.setBasicAuth(username, password, StandardCharsets.UTF_8))
+                .build();
     }
 
     public Outcome send(List<Trade> trades) {

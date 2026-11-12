@@ -41,10 +41,20 @@ class CaptureIntegrationTest {
     TestRestTemplate rest;
 
     private ResponseEntity<String> post(String id, LocalDate maturity) {
-        return rest.postForEntity("/api/v1/trades",
+        return rest.withBasicAuth("admin", "admin@2026!").postForEntity("/api/v1/trades",
                 Map.of("tradeId", id, "version", 1, "counterPartyId", "CP-1", "bookId", "B1",
                         "maturityDate", maturity.toString()),
                 String.class);
+    }
+
+    @Test
+    void refusesATradePostedWithoutCredentials() {
+        ResponseEntity<String> response = rest.postForEntity("/api/v1/trades",
+                Map.of("tradeId", "CAP-ANON", "version", 1, "counterPartyId", "CP-1", "bookId", "B1",
+                        "maturityDate", LocalDate.now().plusYears(1).toString()),
+                String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test

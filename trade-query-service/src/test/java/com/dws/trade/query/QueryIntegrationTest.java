@@ -19,10 +19,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -49,6 +46,10 @@ class QueryIntegrationTest {
     @LocalServerPort
     int port;
 
+    private TestRestTemplate api() {
+        return rest.withBasicAuth("admin", "admin@2026!");
+    }
+
     private static String event(String eventId, String tradeId) {
         return """
                 {"eventId":"%s","type":"ACCEPTED","at":"2026-11-12T10:00:00Z","trade":{"tradeId":"%s","version":1,
@@ -64,7 +65,7 @@ class QueryIntegrationTest {
         jdbc.update("INSERT INTO trade VALUES ('Q2', 2, 'CP-2', 'B1', ?, ?, 'N')", maturity, LocalDate.now());
         jdbc.update("INSERT INTO trade VALUES ('Q1', 1, 'CP-1', 'B1', ?, ?, 'Y')", maturity, LocalDate.now());
 
-        JsonNode page = rest.getForObject("/api/v1/trades", JsonNode.class);
+        JsonNode page = api().getForObject("/api/v1/trades", JsonNode.class);
 
         assertThat(page.get("total").asLong()).isEqualTo(3);
         assertThat(page.get("items")).extracting(t -> t.get("tradeId").asText() + ":" + t.get("version").asInt())
@@ -83,14 +84,14 @@ class QueryIntegrationTest {
                  "bookId":"B1","maturityDate":"2027-05-20"}}""".formatted(id, id));
 
         await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
-            assertThat(rest.getForObject("/api/v1/events?limit=500", JsonNode.class))
+            assertThat(api().getForObject("/api/v1/events?limit=500", JsonNode.class))
                     .anyMatch(e -> e.get("id").asText().equals("ev-" + id));
-            assertThat(rest.getForObject("/api/v1/rejections?limit=500", JsonNode.class))
+            assertThat(api().getForObject("/api/v1/rejections?limit=500", JsonNode.class))
                     .anyMatch(r -> r.get("id").asText().equals("rj-" + id)
                             && r.get("reason").asText().equals("LOWER_VERSION"));
         });
 
-        JsonNode summary = rest.getForObject("/api/v1/summary", JsonNode.class);
+        JsonNode summary = api().getForObject("/api/v1/summary", JsonNode.class);
         assertThat(summary.get("rejectedLowerVersion").asLong()).isGreaterThanOrEqualTo(1);
         assertThat(summary.get("accepted").asLong()).isGreaterThanOrEqualTo(1);
         assertThat(summary.has("trades")).isTrue();
@@ -101,7 +102,9 @@ class QueryIntegrationTest {
     void pushesNewEventsToConnectedDashboards() throws Exception {
         List<String> lines = new CopyOnWriteArrayList<>();
         HttpClient client = HttpClient.newHttpClient();
-        client.sendAsync(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/stream")).build(),
+        client.sendAsync(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/stream"))
+                                .header("Authorization", "Basic " + java.util.Base64.getEncoder()
+                                        .encodeToString("admin:admin@2026!".getBytes())).build(),
                         HttpResponse.BodyHandlers.ofLines())
                 .thenAccept(response -> response.body().forEach(lines::add));
         // The feed greets each subscriber, which tells us the connection is open.
@@ -119,13 +122,10 @@ class QueryIntegrationTest {
     }
 
     @Test
-    void allowsTheDashboardOriginToCallTheApi() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setOrigin("http://localhost:5173");
-
-        ResponseEntity<String> response = rest.exchange("/api/v1/summary", HttpMethod.GET,
-                new HttpEntity<>(headers), String.class);
-
-        assertThat(response.getHeaders().getAccessControlAllowOrigin()).isEqualTo("http://localhost:5173");
+    void refusesReadsAndTheLiveFeedWithoutCredentials() {
+        assertThat(rest.getForEntity("/api/v1/trades", String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(rest.getForEntity("/api/v1/summary", String.class).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(rest.getForEntity("/api/v1/stream", String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 }

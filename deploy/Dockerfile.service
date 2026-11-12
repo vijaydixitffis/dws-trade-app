@@ -5,6 +5,7 @@ ARG MODULE
 WORKDIR /src
 COPY pom.xml .
 COPY trade-common trade-common
+COPY trade-security trade-security
 COPY trade-capture-service trade-capture-service
 COPY trade-processor-service trade-processor-service
 COPY trade-query-service trade-query-service

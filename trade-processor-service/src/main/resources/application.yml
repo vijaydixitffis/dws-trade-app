@@ -21,6 +21,10 @@ spring:
 trade:
   # Time zone that defines "today". Empty = the server's own zone. Example: Europe/London
   business-zone: ""
+  security:
+    # Demo account for HTTP Basic authentication. Override with TRADE_SECURITY_USERNAME / _PASSWORD.
+    username: admin
+    password: "admin@2026!"
   inbound-partitions: 6
   processor:
     # Consumer threads per instance; at most one is useful per partition.

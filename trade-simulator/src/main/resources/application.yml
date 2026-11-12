@@ -21,8 +21,10 @@ simulator:
 trade:
   # Time zone that defines "today" for generated maturity dates. Empty = the server's own zone.
   business-zone: ""
-  cors:
-    allowed-origins: http://localhost:5173,http://localhost:8080
+  security:
+    # Demo account for HTTP Basic authentication; also used to call the capture API.
+    username: admin
+    password: "admin@2026!"
 
 management:
   endpoints:
