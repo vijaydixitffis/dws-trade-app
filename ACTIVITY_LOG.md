@@ -220,3 +220,39 @@ Side effects of the checks on the local demo stack: one oversized test trade on 
 | 74 | Full checks | 74 backend tests and 12 dashboard tests pass; PDF re-rendered (19 pages) |
 
 Known limits of this step: one shared account, no roles, no TLS, and the password has a default in the code and Compose file. These are stated in the HLD and README.
+
+## Session 5 — 2026-11-13 — Review fixes, security without a gateway
+
+### Prompt 11 (verbatim)
+
+> 1. Implement the security fixes without the gateway
+> 2. Update HLD open issues of not using Gateway for the demo scope and purpose
+> 3. Complete security fixes, config and component updates
+> 4. Complete Steps 1 to 4 to address code review comments, bug fixes
+
+### Prompt 12 (verbatim, sent while the work was running)
+
+> Anything that is not fixed/implemented in code review report add it to the HLD open issues and mention demo purpose as reason
+
+| # | Action | Result |
+|---|---|---|
+| 75 | Interpreted "Steps 1 to 4" as steps 1 to 4 of the suggested order in `docs/CODE_REVIEW.md` section 5, and "security fixes without the gateway" as the review's SEC items plus the authorisation model, using Basic authentication, since a token design needs an identity provider the demo does not have | Say so if something else was meant |
+| 76 | Step 1 (tests first, committed red, then code): trade id, counter-party and book limits; `INVALID_TRADE` rejection reason; exponential back-off retry policy; query-service error handler and dead-letter topics; rate-accurate simulator pacing; dashboard run dialog stays open on refusal and validates like the server | 86 backend and 16 dashboard tests at that point |
+| 77 | Step 2: tests that pause PostgreSQL and MongoDB containers, dead-letter unreadable events, and run the expiry job from two callers at once | Found that the start-up expiry run bypassed the lock; fixed |
+| 78 | Step 3: transactional outbox (V2 migration, writer, ordered relay with an advisory lock), atomic trade and event, expiry events in the same transaction, background start-up run, first-delivery-wins history, ISO dates in MongoDB, explicit replaced-versus-new check | 104 backend tests |
+| 79 | Step 4: sequence index (V3), keyset paging with a cursor, capped counts, cached summary, live feed with per-browser queues; dashboard cursor paging, typing pause, cancellation and stale-answer protection, rejections fetched on demand, invalid-trade tile | 118 backend and 23 dashboard tests. A test of the live feed showed that dropping a subscriber on a full queue also dropped a healthy one during bursts; changed to discard the oldest signal and drop only a stalled subscriber |
+| 80 | Security without a gateway: scopes `trades:write`, `trades:read`, `simulator:run`, `ops:read` per endpoint, deny by default, extra accounts by configuration, request size filter (413), per-caller rate limit (429), simulator run cap | 139 backend tests |
+| 81 | Deployment hardening: read-only database account for the query service, unprivileged nginx with a content security policy and rate limits, base images pinned by digest, workflow actions pinned to commits, image scan, CycloneDX bill of materials, CodeQL workflow, Dependabot, `deploy/.env.example` | Regression script now has 33 checks, all passing on a stack rebuilt from scratch |
+| 82 | The first image scan found three fixable critical findings in the old nginx base image | Moved to `nginx-unprivileged:stable-alpine-slim`, which is clean; all five images scan clean |
+| 83 | Found two flaws in my own regression checks (a `pipefail` interaction with `grep -q`) and one wrong test expectation (deny-by-default versus the `/api/v1/**` read rule) | Fixed; none was a product defect |
+| 84 | Opened the dashboard in the browser under the new policy | Loads and works. Putting the login in the page address makes browsers refuse `fetch`, which is a test artefact; with the login cached the page works normally. The browser's own login prompt was not driven by hand |
+| 85 | Updated the diagrams: capture and processing, a new event-delivery diagram, expiry, data model (outbox), component, deployment | Flow split in two so it stays readable |
+| 86 | HLD version 1.1: flows, data, deployment, NFR table, tests and pipeline, traceability, appendix; section 11 now has the open issues including "No API gateway in the demo scope"; section 12 gained "what the demo implements today" and "operating without a gateway" | 25 pages |
+| 87 | Per the second message: every code review item not fixed is now a row in the HLD with its proposed fix and the reason it is deferred (demo purpose) | 26 rows |
+| 88 | README rewritten; `docs/CODE_REVIEW.md` has a status table for every finding; `docs/ARCHITECTURE.md` points to the HLD | — |
+
+### Not done
+
+- TLS, tokens, a gateway, a shared rate limit (HLD sections 11 and 12).
+- Phase 9 (load run and tuning) remains on hold.
+- OWASP Dependency-Check has not run (needs an NVD key).

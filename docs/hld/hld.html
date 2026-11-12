@@ -333,7 +333,7 @@ WHERE (trade_id, version) IN (
 <tr><td>Class diagrams</td><td>Planned with phase 9.</td></tr>
 </table>
 <h2>Code review: what has been done</h2>
-<p>A code review of the first version found 49 issues (<code>docs/CODE_REVIEW.md</code>). Steps 1 to 4 of its suggested order, and the security items that do not need a gateway, are done:</p>
+<p>A code review of the first version found 49 issues (<code>docs/CODE_REVIEW.md</code>). Steps 1 to 4 of its suggested order, and the security items that do not need a gateway, are done; the items still open follow in the next table.</p>
 <table>
 <tr><th style="width:18%">Step</th><th>Fixed</th></tr>
 <tr><td>1. Silent loss and bugs</td><td>Trades with ids that cannot be stored are refused or recorded as invalid, not accepted and dropped; short outages no longer dead-letter trades (back-off retries); the query side no longer skips events while MongoDB is down; the simulator keeps its requested rate; the run dialog stays open and explains a refusal.</td></tr>
@@ -342,7 +342,37 @@ WHERE (trade_id, version) IN (
 <tr><td>4. Read side</td><td>Sequence index with keyset paging and capped counts; cached summary; live feed that cannot be stalled by one browser; dashboard typing pause, cancellation and stale-answer protection.</td></tr>
 <tr><td>Security</td><td>Scopes and deny-by-default; request size and rate limits; simulator cap; read-only database account; unprivileged dashboard host with content security policy; pinned images and actions; image scan, software bill of materials, CodeQL and Dependabot.</td></tr>
 </table>
-<p>Not yet addressed from the review: batching in the processor (PERF-1, PERF-5), the simulator's memory use for very large runs (PERF-7), capture publish timeouts (REL-6), more frequent expiry runs (REL-8), idempotency keys (REL-12), batch status codes (BUG-5), simulator client timeouts (BUG-4), schema versioning and topic management (ARCH-2, ARCH-3), observability and operations items (OPS-1 to OPS-5), accessibility of the dialogs (UI-1 to UI-3), and the remaining test items (TEST-2 to TEST-4).</p>
+<h2>Code review items not yet addressed</h2>
+<p>These findings from <code>docs/CODE_REVIEW.md</code> are open. They are deferred because this release is a demonstration; the last column gives the reason for each.</p>
+<table>
+<tr><th style="width:9%">Id</th><th style="width:33%">Item</th><th style="width:27%">Proposed fix</th><th>Why deferred (demo purpose)</th></tr>
+<tr><td>PERF-1</td><td>The processor commits one transaction and does one blocking publish per trade.</td><td>Batch listener, batched outcome sends, one statement for the version claim and upsert.</td><td>Throughput is not a demo goal and has not been measured; the tuning is planned with the load run (phase 9, on hold).</td></tr>
+<tr><td>PERF-6</td><td>No tuning of poll sizes, fetch sizes or the connection pool.</td><td>Tune from measurements.</td><td>Needs the phase 9 measurements; defaults are enough for a demo.</td></tr>
+<tr><td>PERF-7</td><td>The simulator holds one boxed integer per generated trade; a ten-million-trade run needs hundreds of megabytes.</td><td>Use a primitive array, or reuse a capped set of trade ids.</td><td>The simulator is a demo tool and runs are capped at 1,000,000 trades by default.</td></tr>
+<tr><td>REL-6</td><td>Capture waits 10 s for Kafka but the producer keeps trying for 120 s, so a caller can get 503 and the trade is still delivered later; a failed batch can be half published.</td><td>Shorter producer timeouts; per-trade results on partial failure; an idempotency key.</td><td>Needs a client contract the demo does not have; the processor already tolerates duplicates.</td></tr>
+<tr><td>REL-8</td><td>Expiry rows skipped because they were locked wait until the next daily run.</td><td>Run the job hourly (it is idempotent).</td><td>A demo has no continuous load; the daily run and the start-up run suffice.</td></tr>
+<tr><td>REL-10</td><td>A trade maturing today that is accepted at 23:59 and processed after midnight can be rejected after the caller got 202.</td><td>Document it, or carry the capture business date in a header.</td><td>An edge case only at midnight under load; acceptable for a demo.</td></tr>
+<tr><td>REL-12</td><td>A client retry of a past-maturity trade records the same rejection twice (random id).</td><td>Derive the id from a hash of the trade and business date.</td><td>Cosmetic in a demo; the history is not used for billing or reconciliation.</td></tr>
+<tr><td>BUG-4</td><td>The simulator's HTTP client has no timeouts, so a hung capture API hangs the run and Stop cannot interrupt it.</td><td>Connect and read timeouts; check the stop flag after a failed send.</td><td>The simulator talks to a local service in a demo.</td></tr>
+<tr><td>BUG-5</td><td>The batch endpoint answers 202 even when every trade in it was rejected.</td><td>Answer 207 with per-trade results, or 422 when none was accepted.</td><td>The per-trade results are already in the body, which the simulator and demo clients read.</td></tr>
+<tr><td>ARCH-1</td><td>The query service reads the processor's tables directly, so the two cannot change the schema independently.</td><td>Accept and document, or build a read model the query service owns from events.</td><td>A single team owns both services in the demo; the read-only account limits the risk.</td></tr>
+<tr><td>ARCH-2</td><td>Kafka messages are plain JSON with no version field or schema registry; services share Java records and must be deployed together.</td><td>Add a schema version field; move to Avro or JSON Schema with a registry.</td><td>One repository and one deployment unit in the demo.</td></tr>
+<tr><td>ARCH-3</td><td>Topics are declared in two services with replication hard-coded to 1.</td><td>Make replication a property; declare topics in one place or outside the applications.</td><td>The demo runs one broker, where replication of 1 is the only option.</td></tr>
+<tr><td>ARCH-4</td><td>The database migrations live in the shared jar, not in the service that owns the schema.</td><td>Move them to the processor.</td><td>No effect on behaviour; a tidy-up outside the demo scope.</td></tr>
+<tr><td>ARCH-5</td><td>Test container helpers are duplicated in two modules, and the IPv4 flag is set for everyone.</td><td>A shared test-support module; set the flag locally.</td><td>Maintenance only; the flag was needed on the development machine's network.</td></tr>
+<tr><td>OPS-1</td><td>No correlation id, tracing or structured logs.</td><td>Propagate a correlation id from HTTP to Kafka to the log context; Micrometer Tracing; JSON logs.</td><td>Not needed to demonstrate the flow; production operations need it.</td></tr>
+<tr><td>OPS-2</td><td>Nothing watches or replays the dead-letter topics, and there is no metrics exporter or alerts.</td><td>Prometheus export; alerts on lag, outbox size and dead letters; a replay command.</td><td>No monitoring stack in the demo environment.</td></tr>
+<tr><td>OPS-3</td><td>No liveness or readiness probes; Compose starts services when dependencies have started, not when healthy.</td><td>Enable health probes and health checks with start-up conditions.</td><td>The restart-on-failure policy is enough for a demo.</td></tr>
+<tr><td>OPS-4</td><td>MongoDB history and Kafka topics have no retention policy.</td><td>A time-to-live index; explicit topic retention.</td><td>Demo data volumes are small and the stack is recreated.</td></tr>
+<tr><td>OPS-5</td><td>No container memory settings for the JVM; consumer shutdown under load is untested.</td><td>Set the memory percentage; test a rolling restart.</td><td>Needs the phase 9 environment.</td></tr>
+<tr><td>UI-1</td><td>The dialog does not trap keyboard focus; tabs lack panel roles and arrow keys.</td><td>Use the native dialog element; complete the tab roles.</td><td>Accessibility polish beyond the demo scope; to be done before general use.</td></tr>
+<tr><td>UI-2</td><td>Times in the rejections table use the browser's zone while the business date uses the server's.</td><td>Show times in the business zone, labelled.</td><td>A presentation detail; the demo runs in one zone.</td></tr>
+<tr><td>UI-3</td><td>Only the latest 200 rejections are shown, without paging, a filter or a loading indicator.</td><td>Paging and a reason filter; a loading state.</td><td>Demo volumes fit 200 rows.</td></tr>
+<tr><td>TEST-2</td><td>Dashboard tests live in one file and stub the network; no real-browser test.</td><td>Split per component; one Playwright test against the stack.</td><td>The regression script already exercises the dashboard host and its API paths.</td></tr>
+<tr><td>TEST-3</td><td>No load test, so throughput statements are unproven.</td><td>Phase 9.</td><td>On hold at the sponsor's request.</td></tr>
+<tr><td>TEST-4</td><td>No static analysis in the build beyond CodeQL.</td><td>Error Prone or SpotBugs; ESLint for the dashboard.</td><td>CodeQL covers the security-relevant cases for the demo.</td></tr>
+<tr><td>SEC-1 to SEC-5 (remainder)</td><td>Partly addressed: one shared account, no TLS or tokens, no shared rate limit, demo default passwords, container images used by tests unpinned.</td><td>Section 12 design; TLS; a vault; a gateway.</td><td>Simple Basic auth is used for demo purpose (see above).</td></tr>
+</table>
 </section>
 
 <section class="pb">
