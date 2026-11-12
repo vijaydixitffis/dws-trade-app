@@ -1,0 +1,40 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: trade-processor-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tradestore
+    username: trade
+    password: trade
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: trade-processor
+      auto-offset-reset: earliest
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+
+trade:
+  # Time zone that defines "today". Empty = the server's own zone. Example: Europe/London
+  business-zone: ""
+  inbound-partitions: 6
+  processor:
+    # Consumer threads per instance; at most one is useful per partition.
+    concurrency: 3
+  expiry:
+    # Seconds minutes hours day month weekday, in the business zone. "-" disables the schedule.
+    cron: "0 1 0 * * *"
+    batch-size: 500
+  retry:
+    interval-ms: 1000
+    max-attempts: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
