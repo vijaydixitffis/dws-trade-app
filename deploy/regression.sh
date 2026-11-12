@@ -8,6 +8,9 @@ CAPTURE=${CAPTURE_URL:-http://localhost:8081}
 QUERY=${QUERY_URL:-http://localhost:8083}
 SIMULATOR=${SIMULATOR_URL:-http://localhost:8084}
 DASHBOARD=${DASHBOARD_URL:-http://localhost:8080}
+USER_NAME=${TRADE_SECURITY_USERNAME:-admin}
+PASSWORD=${TRADE_SECURITY_PASSWORD:-admin@2026!}
+AUTH="$USER_NAME:$PASSWORD"
 RUN="REG$(date +%s)"
 FAILED=0
 
@@ -27,14 +30,14 @@ check() { # check <description> <expected> <actual>
 }
 
 post() { # post <tradeId> <version> <bookId> <maturity>  ->  HTTP status
-  curl -s -o /dev/null -w '%{http_code}' -X POST "$CAPTURE/api/v1/trades" -H 'Content-Type: application/json' \
+  curl -s -u "$AUTH" -o /dev/null -w '%{http_code}' -X POST "$CAPTURE/api/v1/trades" -H 'Content-Type: application/json' \
     -d "{\"tradeId\":\"$1\",\"version\":$2,\"counterPartyId\":\"CP-1\",\"bookId\":\"$3\",\"maturityDate\":\"$4\"}"
 }
 
 await() { # await <description> <jq-filter> <url> <expected>; polls for up to 60 s
   local actual=""
   for _ in $(seq 1 60); do
-    actual=$(curl -sf "$3" | jq -r "$2" 2>/dev/null || true)
+    actual=$(curl -sf -u "$AUTH" "$3" | jq -r "$2" 2>/dev/null || true)
     [ "$actual" == "$4" ] && break
     sleep 1
   done
@@ -57,7 +60,7 @@ check "same version is accepted for processing (202)"         202 "$(post "$RUN-
 check "lower version is accepted for processing (202)"        202 "$(post "$RUN-A" 1 B3 "$FUTURE")"
 check "trade maturing today is accepted (202)"                202 "$(post "$RUN-B" 1 B1 "$(day +0)")"
 check "past maturity is rejected at once (422)"               422 "$(post "$RUN-C" 1 B1 "$YESTERDAY")"
-check "incomplete trade is refused (400)"                     400 "$(curl -s -o /dev/null -w '%{http_code}' \
+check "incomplete trade is refused (400)"                     400 "$(curl -s -u "$AUTH" -o /dev/null -w '%{http_code}' \
   -X POST "$CAPTURE/api/v1/trades" -H 'Content-Type: application/json' -d '{"tradeId":"X"}')"
 
 TRADES="$QUERY/api/v1/trades?tradeId=$RUN"
@@ -74,12 +77,26 @@ await "past maturity is recorded as a rejection by the capture API" \
   "[.[] | select(.trade.tradeId==\"$RUN-C\")] | map(\"\(.reason)/\(.source)\") | join(\" \")" "$REJ" "MATURITY_DATE_PASSED/CAPTURE"
 
 echo "Simulator run: 500 trades with a mix of scenarios"
-curl -sf -X POST "$SIMULATOR/api/v1/simulations" -H 'Content-Type: application/json' \
+curl -sf -u "$AUTH" -X POST "$SIMULATOR/api/v1/simulations" -H 'Content-Type: application/json' \
   -d '{"count":500,"ratePerSecond":500,"higherVersionPct":20,"sameVersionPct":10,"lowerVersionPct":10,"pastMaturityPct":10}' >/dev/null
 await "simulator sent all 500 trades"  '"\(.sent)/\(.running)"' "$SIMULATOR/api/v1/simulations/current" "500/false"
-check "simulator run finished without error" "null" "$(curl -sf "$SIMULATOR/api/v1/simulations/current" | jq -r '.error')"
+check "simulator run finished without error" "null" "$(curl -sf -u "$AUTH" "$SIMULATOR/api/v1/simulations/current" | jq -r '.error')"
 
-check "dashboard is served" 200 "$(curl -s -o /dev/null -w '%{http_code}' "$DASHBOARD/")"
+code() { # code <curl args...>  ->  HTTP status
+  curl -s -o /dev/null -w '%{http_code}' "$@"
+}
+echo "Authentication"
+check "capture refuses a call without credentials (401)"   401 "$(code -X POST "$CAPTURE/api/v1/trades" -H 'Content-Type: application/json' -d '{}')"
+check "capture refuses a wrong password (401)"             401 "$(code -u "$USER_NAME:wrong" -X POST "$CAPTURE/api/v1/trades" -H 'Content-Type: application/json' -d '{}')"
+check "query refuses a call without credentials (401)"     401 "$(code "$QUERY/api/v1/trades")"
+check "simulator refuses a call without credentials (401)" 401 "$(code "$SIMULATOR/api/v1/simulations/current")"
+check "processor metrics need credentials (401)"           401 "$(code "http://localhost:8082/actuator/metrics")"
+check "dashboard asks for a login (401)"                   401 "$(code "$DASHBOARD/")"
+check "dashboard refuses a wrong password (401)"           401 "$(code -u "$USER_NAME:wrong" "$DASHBOARD/")"
+check "dashboard is served after login (200)"              200 "$(code -u "$AUTH" "$DASHBOARD/")"
+check "dashboard forwards the login to the query API"      200 "$(code -u "$AUTH" "$DASHBOARD/query/api/v1/summary")"
+check "dashboard forwards the login to the simulator API"  200 "$(code -u "$AUTH" "$DASHBOARD/simulator/api/v1/simulations/current")"
+check "dashboard API path refuses a call without login"    401 "$(code "$DASHBOARD/query/api/v1/summary")"
 
 if [ "$FAILED" -ne 0 ]; then
   echo "REGRESSION FAILED"

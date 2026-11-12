@@ -13,6 +13,9 @@ x-env: &env
   SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
   # Empty = the server's own time zone. Set e.g. Europe/London to override.
   TRADE_BUSINESS_ZONE: ${TRADE_BUSINESS_ZONE:-}
+  # HTTP Basic account for the demo. Change both for anything other than a demo.
+  TRADE_SECURITY_USERNAME: ${TRADE_SECURITY_USERNAME:-admin}
+  TRADE_SECURITY_PASSWORD: ${TRADE_SECURITY_PASSWORD:-admin@2026!}
   TZ: ${TZ:-}
 
 services:
@@ -101,4 +104,11 @@ services:
   trade-dashboard-ui:
     build: { context: ../trade-dashboard-ui }
     ports: ["8080:80"]
+    environment:
+      TRADE_SECURITY_USERNAME: ${TRADE_SECURITY_USERNAME:-admin}
+      TRADE_SECURITY_PASSWORD: ${TRADE_SECURITY_PASSWORD:-admin@2026!}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/healthz"]
+      interval: 5s
+      retries: 20
     depends_on: [trade-query-service, trade-simulator]

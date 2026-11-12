@@ -9,7 +9,7 @@ actor "Browser" as browser
 
 node "Docker host (one command: docker compose up)" as host {
   node "Web" as web {
-    artifact "trade-dashboard-ui\nnginx :8080" as ui
+    artifact "trade-dashboard-ui\nnginx :8080\n(login, API proxy)" as ui
   }
   node "Application services (Spring Boot 4, Java 21)" as apps {
     artifact "trade-capture-service\n:8081" as capture
@@ -24,9 +24,9 @@ node "Docker host (one command: docker compose up)" as host {
   }
 }
 
-browser --> ui : HTTP
-browser --> query : REST, SSE
-browser --> sim : REST
+browser --> ui : HTTP + Basic auth
+ui --> query : proxy /query
+ui --> sim : proxy /simulator
 sim --> capture : HTTP
 capture --> kafka
 processor --> kafka

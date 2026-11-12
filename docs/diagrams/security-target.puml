@@ -1,0 +1,39 @@
+@startuml security-target
+title Trade Store - Recommended Authentication and Authorisation
+skinparam defaultTextAlignment center
+skinparam nodesep 35
+skinparam ranksep 45
+top to bottom direction
+
+actor "Operations user\n(browser)" as user
+component "Upstream trading system\n(machine client)" as machine
+component "Identity provider\nOAuth 2.0 / OpenID Connect\n(users, clients, roles, keys)" as idp
+
+rectangle "Edge" as edge {
+  component "API gateway and dashboard host\nTLS, token check, rate limits,\nsession cookie for the browser" as gw
+}
+
+rectangle "Services (each validates the JWT again)" as services {
+  component "trade-capture-service\nscope trades:write" as capture
+  component "trade-query-service\nscope trades:read" as query
+  component "Actuator on a management port\nscope ops:read" as ops
+}
+
+rectangle "Platform" as platform {
+  queue "Kafka\nmTLS + ACL per service" as kafka
+  database "PostgreSQL / MongoDB\nTLS, one role per service" as db
+  component "Secret store\n(vault, rotation)" as vault
+}
+
+user --> idp : 1 sign in\n(authorisation code + PKCE)
+user --> gw : 2 HTTPS with session cookie
+machine --> idp : 1 client credentials\n(or mTLS-bound token)
+machine --> gw : 2 HTTPS with access token
+gw ..> idp : fetch signing keys (JWKS)
+gw --> capture : JWT (trades:write)
+gw --> query : JWT (trades:read)
+capture --> kafka
+query --> kafka
+query --> db
+services ..> vault : credentials at start-up
+@enduml

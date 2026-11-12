@@ -7,6 +7,17 @@
 | Method | Read every source and configuration file; reproduced four suspected defects on the running Docker Compose stack |
 | Reviewer note | This is a review of code written earlier in this same engagement, by the same author. Treat it as a hard self-review, not an independent one. |
 
+## Changes since this review
+
+The findings below describe commit `e39d3d8`. Later work changed the status of these:
+
+| Finding | Status | What changed |
+|---|---|---|
+| SEC-1 | Partly addressed | Every service and the dashboard now require HTTP Basic authentication (one demo administrator account). There are still no roles and no TLS. The recommended design is in section 12 of the HLD |
+| SEC-2 | Partly addressed | The simulator now requires the login and no longer accepts cross-origin calls. It is still deployed with the rest of the demo |
+| SEC-6 | Partly addressed | The dashboard's nginx now sends `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`. It still runs as root and has no content security policy |
+| ARCH-6 | Fixed | The dashboard calls same-origin paths that nginx forwards to the services; CORS configuration was removed |
+
 ## 1. Verdict
 
 The three business rules are implemented correctly and are well tested, including under concurrency. The weaknesses are around them: what happens when infrastructure fails, how the system behaves at volume, and security.

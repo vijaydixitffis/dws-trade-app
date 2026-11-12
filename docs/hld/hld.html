@@ -68,8 +68,9 @@
 <tr><td>8. Deployment view</td></tr>
 <tr><td>9. Non-functional requirements and how the solution meets them</td></tr>
 <tr><td>10. Quality, testing and delivery pipeline</td></tr>
-<tr><td>11. Risks, limitations and next steps</td></tr>
-<tr><td>12. Traceability from requirements to design and tests</td></tr>
+<tr><td>11. Known issues, risks and next steps</td></tr>
+<tr><td>12. Recommended authentication and authorisation design</td></tr>
+<tr><td>13. Traceability from requirements to design and tests</td></tr>
 <tr><td>Appendix: interfaces and configuration</td></tr>
 </table>
 </section>
@@ -105,7 +106,7 @@
 <li>A test-first build, a delivery pipeline with a vulnerability gate, and PlantUML diagrams.</li>
 </ul>
 <h3>Out of scope for this release</h3>
-<p>Authentication and authorisation, TLS, multi-broker Kafka and database replication in the supplied Compose file, Kubernetes manifests, and measured load-test figures (phase 9).</p>
+<p>Production-grade authentication and authorisation (simple Basic auth is used for demo purpose; section 12 gives the recommended design), TLS, multi-broker Kafka and database replication in the supplied Compose file, Kubernetes manifests, and measured load-test figures (phase 9).</p>
 <h3>Decisions agreed with the sponsor</h3>
 <table>
 <tr><th style="width:26%">Topic</th><th>Decision</th></tr>
@@ -135,7 +136,7 @@
 <tr><td>PostgreSQL</td><td>The trade store.</td><td>-</td></tr>
 <tr><td>trade-query-service</td><td>Projects outcome topics into MongoDB, serves the trade list from PostgreSQL and the history from MongoDB, and pushes live updates to the dashboard over Server-Sent Events.</td><td>MongoDB</td></tr>
 <tr><td>MongoDB</td><td>History of every store change and every rejection.</td><td>-</td></tr>
-<tr><td>trade-dashboard-ui</td><td>Summary counters, the trade store in sequence, rejected trades with reasons, and simulator controls: a quick run dialog (bulk mix) and a detailed run dialog (mix sliders and trade variety).</td><td>None</td></tr>
+<tr><td>trade-dashboard-ui</td><td>Summary counters, the trade store in sequence, rejected trades with reasons, and simulator controls: a quick run dialog (bulk mix) and a detailed run dialog (mix sliders and trade variety). Served by nginx, which asks for the login before the page loads and forwards the dashboard's API calls to the query service and the simulator.</td><td>None</td></tr>
 </table>
 <div class="note"><b>Why a separate query service.</b> The processor's only job is to keep up with the inbound stream. Dashboard reads and browser connections run elsewhere, so they cannot slow it down.</div>
 <div class="note"><b>Why the capture API does not write to the database.</b> It stays stateless and fast, Kafka absorbs bursts, and the processor can be stopped or redeployed without losing accepted trades.</div>
@@ -154,6 +155,7 @@
 <tr><td>UI</td><td>React, Vite, TypeScript, plain CSS</td><td>Quick to build and run; no UI framework needed.</td></tr>
 <tr><td>Tests</td><td>JUnit 5, AssertJ, Mockito, Testcontainers, Awaitility, JaCoCo; Vitest and Testing Library for the UI</td><td>Real Kafka, PostgreSQL and MongoDB in tests rather than mocks of them.</td></tr>
 <tr><td>Delivery</td><td>GitHub Actions; Trivy, <code>npm audit</code> and OWASP Dependency-Check</td><td>Named in the assignment; fails on critical findings.</td></tr>
+<tr><td>Access control (demo)</td><td>Spring Security HTTP Basic in every service; nginx <code>auth_basic</code> for the dashboard</td><td>Smallest working protection for a demonstration; one shared module. Not the production design (section 12).</td></tr>
 <tr><td>Packaging</td><td>Docker and Docker Compose</td><td>One command starts the whole system anywhere Docker runs.</td></tr>
 </table>
 <p>No separate application server is installed: each Spring Boot service embeds Tomcat.</p>
@@ -234,6 +236,7 @@ WHERE (trade_id, version) IN (
 <table>
 <tr><th style="width:32%">Setting</th><th>Purpose</th></tr>
 <tr><td><code>TRADE_BUSINESS_ZONE</code></td><td>Time zone that defines "today"; empty means the server's own zone.</td></tr>
+<tr><td><code>TRADE_SECURITY_USERNAME</code>, <code>TRADE_SECURITY_PASSWORD</code></td><td>The Basic auth account, used by every service and by nginx. Defaults are for the demo only.</td></tr>
 <tr><td><code>SPRING_KAFKA_BOOTSTRAP_SERVERS</code></td><td>Kafka address.</td></tr>
 <tr><td><code>SPRING_DATASOURCE_URL</code></td><td>PostgreSQL address.</td></tr>
 <tr><td><code>SPRING_MONGODB_URI</code></td><td>MongoDB address.</td></tr>
@@ -260,10 +263,10 @@ WHERE (trade_id, version) IN (
 <tr><td>Durability</td><td>Trades are committed to PostgreSQL before the offset moves; inbound records stay in Kafka until retention removes them, allowing replay.</td><td><span class="ok">Met</span> (replication is a deployment choice)</td></tr>
 <tr><td>Auditability</td><td>Every store change and every rejection, with its reason and source, is kept in MongoDB and shown on the dashboard; Kafka topics allow replay.</td><td><span class="ok">Met</span></td></tr>
 <tr><td>Correctness of time</td><td>One injected clock supplies "today" to capture, processor, expiry and simulator; the zone is the server's, or the administrator's override. The shared maturity rule defines the boundary once. A test shows a Tokyo clock moves the date a day ahead of UTC.</td><td><span class="ok">Met</span></td></tr>
-<tr><td>Configurability</td><td>Time zone, partitions, concurrency, retry, expiry schedule, batch size and allowed browser origins are settings, not code.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Configurability</td><td>Time zone, partitions, concurrency, retry, expiry schedule, batch size and the login account are settings, not code.</td><td><span class="ok">Met</span></td></tr>
 <tr><td>Observability</td><td>Spring Actuator health, info and metrics on every service. The processor counts outcomes (<code>trades.processed</code> by outcome: accepted, replaced, lower version, maturity passed). Rejections are logged with the reason. The dashboard shows live counters and recent rejections.</td><td><span class="gap">Partly</span>: no distributed tracing or correlation id yet, and no metrics exporter configured</td></tr>
-<tr><td>Security</td><td>Inputs are validated (required fields, version of at least 1, batch size limit). Containers run as a non-root user. Browser access is limited to an allow-list of origins. Dependencies are scanned on every build and critical findings fail it.</td><td><span class="gap">Not yet</span>: no authentication, authorisation or TLS, and the Compose file uses default database credentials. These must be added before any non-demo use.</td></tr>
-<tr><td>Maintainability and testability</td><td>Small modules with one job each; the rules live in a shared module with no framework dependency; every rule was written test-first. 63 backend tests, 11 UI tests and a 17-check end-to-end script. Line coverage above 90 % in every module, with a build-failing gate at 80 %.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Security</td><td>Every API, the live feed, the Actuator endpoints (except the health check) and the dashboard require HTTP Basic authentication; the dashboard and its API calls share one origin behind nginx, so no cross-origin access is needed. Inputs are validated (required fields, version of at least 1, batch size limit). Service containers run as a non-root user. Dependencies are scanned on every build and critical findings fail it.</td><td><span class="gap">Partly</span>: simple Basic auth is used for demo purpose, with one shared administrator account, no roles and no TLS; default database credentials. Section 12 gives the recommended design.</td></tr>
+<tr><td>Maintainability and testability</td><td>Small modules with one job each; the rules live in a shared module with no framework dependency; every rule was written test-first. 74 backend tests, 12 UI tests and a 28-check end-to-end script. Line coverage above 90 % in every module, with a build-failing gate at 80 %.</td><td><span class="ok">Met</span></td></tr>
 <tr><td>Portability and ease of setup</td><td>Docker is the only requirement to run the system; the same Kafka and database images are used in tests, the pipeline and the demo. The code imports into Eclipse as ordinary Maven projects.</td><td><span class="ok">Met</span></td></tr>
 <tr><td>Supply-chain safety</td><td>Trivy and <code>npm audit</code> run on every build; any critical finding (CVSS 9.0 or above) fails it. OWASP Dependency-Check runs too when an NVD API key is configured. The gate has already proved useful: it forced the move to Spring Boot 4.</td><td><span class="ok">Met</span> (OWASP run pending the key)</td></tr>
 <tr><td>Data growth</td><td>Kafka retention bounds the log. The partial index keeps expiry cheap. MongoDB history grows without a limit today.</td><td><span class="gap">Partly</span>: add a retention (time-to-live) policy for history</td></tr>
@@ -282,10 +285,11 @@ WHERE (trade_id, version) IN (
 <tr><td>Processor and expiry</td><td>One outcome per trade, zone-dependent date, expiry boundary, batches, re-run safety</td><td>9</td></tr>
 <tr><td>Kafka integration</td><td>Accept, replace, reject in arrival order; past maturity; unreadable and incomplete records parked while good ones continue; capture API publishing with the right key</td><td>4</td></tr>
 <tr><td>HTTP contracts</td><td>202, 422, 400, 503, batch; simulator run control and validation of its variation inputs</td><td>15</td></tr>
-<tr><td>Query side</td><td>Store ordering and paging, MongoDB projection and de-duplication, summary, live feed, CORS</td><td>11</td></tr>
+<tr><td>Query side</td><td>Store ordering and paging, MongoDB projection and de-duplication, summary, live feed, refusal without credentials</td><td>11</td></tr>
+<tr><td>Authentication</td><td>401 without or with wrong credentials, demo and configured accounts, open health check, protected Actuator, no session, simulator signs in to capture</td><td>11</td></tr>
 <tr><td>Simulator generator</td><td>Scenarios are true to the versions already sent; mix matches the request; chosen counter-parties, books, maturity window and id prefix are honoured</td><td>8</td></tr>
-<tr><td>Dashboard</td><td>Table, date format, summary, rejections, filter, quick and detailed run dialogs (open, cancel, validation, request contents)</td><td>11</td></tr>
-<tr><td>End-to-end regression</td><td>Whole system on Docker Compose, using dates relative to today</td><td>17 checks</td></tr>
+<tr><td>Dashboard</td><td>Table, date format, summary, rejections, filter, quick and detailed run dialogs (open, cancel, validation, request contents), same-origin API paths</td><td>12</td></tr>
+<tr><td>End-to-end regression</td><td>Whole system on Docker Compose, using dates relative to today; includes 11 authentication checks</td><td>28 checks</td></tr>
 </table>
 <h2>Delivery pipeline</h2>
 <figure><img src="../diagrams/cicd.svg" alt="Pipeline" style="max-height:80mm"><figcaption>Figure 6. GitHub Actions pipeline</figcaption></figure>
@@ -293,12 +297,13 @@ WHERE (trade_id, version) IN (
 <p>The same checks run without GitHub: <code>mvn verify</code>, <code>docker compose up --build -d</code> followed by <code>deploy/regression.sh</code>, and <code>mvn -Psecurity-scan verify</code> for OWASP Dependency-Check.</p>
 </section>
 
-<section>
-<h1>11. Risks, limitations and next steps</h1>
+<section class="pb">
+<h1>11. Known issues, risks and next steps</h1>
 <table>
 <tr><th style="width:30%">Item</th><th>Detail and proposed action</th></tr>
 <tr><td>Throughput not yet measured</td><td>Phase 9 will run the simulator at increasing rates and record trades per second, consumer lag and latency, then tune partitions, threads and batching. On hold at the sponsor's request.</td></tr>
-<tr><td>No authentication or TLS</td><td>Add OAuth2 or API-key access on the capture and query APIs, TLS on all links, and secrets from a vault instead of defaults.</td></tr>
+<tr><td>Simple Basic auth is used for demo purpose</td><td>Every service and the dashboard require HTTP Basic authentication with a single administrator account (<code>admin</code>; the password is set by <code>TRADE_SECURITY_PASSWORD</code> and has a demo default). There are no roles, the password travels with every request, and there is no TLS, so it can be read on the network. The same account is shared by users and by the simulator. Replace with the design in section 12 before any use beyond a demo.</td></tr>
+<tr><td>No TLS; default database credentials</td><td>Add TLS on all links and take secrets from a vault instead of defaults.</td></tr>
 <tr><td>Single broker and databases in Compose</td><td>Production deployment needs a Kafka cluster (replication factor 3, min in-sync replicas 2) and replicated PostgreSQL and MongoDB.</td></tr>
 <tr><td>Commit-then-publish window in the processor</td><td>A crash between the database commit and the outcome publish makes the trade reprocessed, so its event is published as <code>REPLACED</code>. A transactional outbox would remove the wrinkle if exact event types matter.</td></tr>
 <tr><td>Fixed partition count</td><td>Six partitions cap processor parallelism at six threads per consumer group; increasing the count later is possible but needs care for keyed ordering.</td></tr>
@@ -310,8 +315,52 @@ WHERE (trade_id, version) IN (
 </table>
 </section>
 
+<section class="pb">
+<h1>12. Recommended authentication and authorisation design</h1>
+<p>Basic auth proves the wiring but answers only "does the caller know the shared password". A trade store needs to know <b>who</b> is calling (authentication) and <b>what that caller may do</b> (authorisation), for people and for systems, without a password crossing the network on each call. The recommended design uses OAuth 2.0 and OpenID Connect with short-lived signed tokens.</p>
+<figure><img src="../diagrams/security-target.svg" alt="Recommended security design" style="max-height:120mm"><figcaption>Figure 7. Recommended authentication and authorisation</figcaption></figure>
+<h2>Authentication: who is calling</h2>
+<table>
+<tr><th style="width:22%">Caller</th><th>How it proves its identity</th></tr>
+<tr><td>Operations user in a browser</td><td>Signs in at the organisation's identity provider with the authorisation-code flow and PKCE, with multi-factor authentication. The gateway (or a small backend-for-frontend) keeps the tokens and gives the browser only a secure, HTTP-only, same-site session cookie, so no token is stored in JavaScript. The live feed uses the same cookie.</td></tr>
+<tr><td>Upstream trading system</td><td>The client-credentials flow, one registered client per source system. For higher assurance the token is bound to the client's TLS certificate (mutual TLS), so a stolen token is useless elsewhere.</td></tr>
+<tr><td>Service to service</td><td>Each service has its own client identity and requests its own token; the simulator calls capture as itself, not as a user.</td></tr>
+<tr><td>Service to Kafka and databases</td><td>Mutual TLS or SASL with one principal per service, and one database role per service, with credentials issued by a secret store and rotated.</td></tr>
+</table>
+<p>Access tokens are JSON Web Tokens that live for 5 to 15 minutes. The gateway and every service check the signature against the provider's published keys, and check issuer, audience and expiry. Services check again even behind the gateway, so a call that bypasses the gateway is still refused.</p>
+<h2>Authorisation: what the caller may do</h2>
+<table>
+<tr><th style="width:20%">Scope</th><th style="width:38%">Allows</th><th>Granted to</th></tr>
+<tr><td><code>trades:write</code></td><td><code>POST /api/v1/trades</code> and <code>/batch</code></td><td>Upstream trading systems; the simulator in test environments</td></tr>
+<tr><td><code>trades:read</code></td><td>Trade list, events, rejections, summary, live feed</td><td>Operations users; reporting systems</td></tr>
+<tr><td><code>simulator:run</code></td><td>Start and stop simulator runs</td><td>Test engineers, in non-production only; the simulator is not deployed in production</td></tr>
+<tr><td><code>ops:read</code></td><td>Actuator metrics and info on a separate management port</td><td>Monitoring systems and support staff</td></tr>
+</table>
+<ul>
+<li><b>Roles map to scopes.</b> The identity provider holds roles such as Trade Operations, Trade Support and Platform Operations; each role grants a set of scopes. Services check scopes with method-level rules, for example <code>@PreAuthorize("hasAuthority('SCOPE_trades:write')")</code>.</li>
+<li><b>Data-level rules.</b> A token carries the books or counter-parties the caller is entitled to. Capture rejects a trade for a book outside the caller's entitlement with 403; the query service filters results the same way.</li>
+<li><b>Kafka access lists.</b> Capture may write <code>trades.inbound</code> and <code>trades.rejected</code>; the processor may read <code>trades.inbound</code> and write the outcome and dead-letter topics; the query service may only read the outcome topics.</li>
+<li><b>Least privilege in the databases.</b> The processor's role may write the trade tables; the query service's PostgreSQL role is read-only.</li>
+<li><b>Deny by default.</b> Anything not explicitly allowed is refused: 401 when the caller is unknown, 403 when known but not permitted.</li>
+</ul>
+<h2>Supporting controls</h2>
+<ul>
+<li>TLS on every link, terminated at the gateway and re-established to the services.</li>
+<li>Rate limits and request-size limits per client at the gateway.</li>
+<li>Audit: the caller's subject and client id are logged with each trade and carried in a Kafka header, so the history shows who submitted every trade.</li>
+<li>Secrets come from a vault and rotate; nothing is committed to the repository.</li>
+</ul>
+<h2>Moving from the demo to this design</h2>
+<ol>
+<li>Add the OAuth2 resource-server starter to the shared security module and switch its filter chain from Basic to JWT validation; because all services import that one module, the change is made once.</li>
+<li>Add scope checks to the controllers and tests for 401 and 403 per endpoint.</li>
+<li>Put a gateway in front (the dashboard's nginx already forwards API paths) and move the browser to a session cookie.</li>
+<li>Enable TLS, Kafka access lists and per-service database roles.</li>
+</ol>
+</section>
+
 <section>
-<h1>12. Traceability from requirements to design and tests</h1>
+<h1>13. Traceability from requirements to design and tests</h1>
 <table>
 <tr><th style="width:24%">Requirement</th><th>Design element</th><th style="width:30%">Verified by</th></tr>
 <tr><td>Spring Boot application</td><td>Five Spring Boot modules</td><td>Build and all tests</td></tr>
@@ -322,7 +371,7 @@ WHERE (trade_id, version) IN (
 <tr><td>Rule 3: matured trades expired</td><td>Scheduled expiry job with lock</td><td>Expiry tests</td></tr>
 <tr><td>Thousands of trades, any transmission</td><td>Partitioned Kafka, batch API, stateless capture, validation in the processor</td><td>Simulator 500-trade regression; load figures pending</td></tr>
 <tr><td>Stored in a specific sequence</td><td>Trade id ascending, version descending</td><td>Query repository test, dashboard test</td></tr>
-<tr><td>JUnit, test-first</td><td>Tests committed before implementation</td><td>Commit history; 63 backend tests</td></tr>
+<tr><td>JUnit, test-first</td><td>Tests committed before implementation</td><td>Commit history; 74 backend tests</td></tr>
 <tr><td>Pipeline with regression and vulnerability scan; fail on critical</td><td>GitHub Actions workflow</td><td>Pipeline runs; the scan failed the build on real findings before the Boot 4 move</td></tr>
 <tr><td>PlantUML diagrams</td><td>Component, sequence, data model, deployment and pipeline diagrams</td><td>Sources and rendered SVGs in <code>docs/diagrams</code></td></tr>
 </table>
@@ -334,7 +383,8 @@ WHERE (trade_id, version) IN (
 <tr><td>Processor (8082)</td><td>Kafka consumer of <code>trades.inbound</code>; Actuator health, info, metrics.</td></tr>
 <tr><td>Query (8083)</td><td><code>GET /api/v1/trades</code> (paged, filter by trade id prefix), <code>/events</code>, <code>/rejections</code>, <code>/summary</code>, and <code>/stream</code> (Server-Sent Events).</td></tr>
 <tr><td>Simulator (8084)</td><td><code>POST /api/v1/simulations</code> starts a run (volume, scenario mix, and optional counter-parties, books, maturity window and id prefix); <code>GET</code> and <code>DELETE /api/v1/simulations/current</code> report and stop it.</td></tr>
-<tr><td>Dashboard (8080)</td><td>Web page served by nginx.</td></tr>
+<tr><td>Dashboard (8080)</td><td>Web page served by nginx after login. Forwards <code>/query/...</code> to the query service and <code>/simulator/...</code> to the simulator.</td></tr>
+<tr><td>All services</td><td>HTTP Basic authentication on every path except <code>/actuator/health</code>.</td></tr>
 </table>
 <p>Repository layout: <code>trade-common</code> (model, rules, schema), <code>trade-capture-service</code>, <code>trade-processor-service</code>, <code>trade-query-service</code>, <code>trade-simulator</code>, <code>trade-dashboard-ui</code>, <code>deploy</code> (Compose, Dockerfile, regression script) and <code>docs</code>.</p>
 </section>

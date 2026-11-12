@@ -1,7 +1,9 @@
 import type { Rejection, SimulationRequest, SimulationStatus, Summary, TradePage } from './types';
 
-export const QUERY_URL: string = import.meta.env.VITE_QUERY_URL ?? 'http://localhost:8083';
-export const SIMULATOR_URL: string = import.meta.env.VITE_SIMULATOR_URL ?? 'http://localhost:8084';
+// Same-origin paths. The web server that serves this page (nginx, or Vite in development)
+// forwards them to the services, so the browser's Basic authentication applies to every call.
+export const QUERY_URL: string = import.meta.env.VITE_QUERY_URL ?? '/query';
+export const SIMULATOR_URL: string = import.meta.env.VITE_SIMULATOR_URL ?? '/simulator';
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);

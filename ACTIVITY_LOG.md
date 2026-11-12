@@ -196,3 +196,27 @@ To regenerate the PDF after editing `docs/hld/hld.html`:
 | 61 | No code was changed | The review is a report only. The tag `mvp1-dev-12Nov10pm` still points at `e39d3d8`, the reviewed commit |
 
 Side effects of the checks on the local demo stack: one oversized test trade on the dead-letter topic and 30 simulator trades in the store.
+
+## Session 4 — 2026-11-12 — Basic authentication
+
+### Prompt 10 (verbatim)
+
+> For security issues found - mention in HLD under known issues - Simple Basic auth is used for demo purpose. Implement this and Load UI after basic auth where admin and any password admin@2026! Also recommend a authN and authZ design for API calls
+
+| # | Action | Result |
+|---|---|---|
+| 62 | Read "admin and any password admin@2026!" as user `admin` with password `admin@2026!` | Say so if a different rule was meant |
+| 63 | New module `trade-security`; tests written and committed first (red) | 9 tests: 401 without or with wrong credentials, demo and configured accounts, POST without CSRF token, open health check, protected Actuator, no session |
+| 64 | Implemented `TradeSecurityConfig` (Spring Security HTTP Basic, one in-memory administrator, BCrypt, stateless) and imported it in all four services | Account from `TRADE_SECURITY_USERNAME` / `TRADE_SECURITY_PASSWORD`; a warning is logged when the demo password is in use; `/actuator/health` stays open for container probes |
+| 65 | Simulator signs in to the capture API with the same account | `CaptureClientTest` checks the `Authorization` header |
+| 66 | Dashboard now loads only after login: nginx `auth_basic` in front of the page, and nginx forwards `/query/` and `/simulator/` to the services with the browser's credentials | The dashboard uses same-origin paths, so the CORS configuration and its test were removed (review finding ARCH-6). Vite proxies the same paths in development |
+| 67 | Compose passes the account to every service and to nginx; nginx gained a health check and three security headers | — |
+| 68 | Regression script signs in and gained 11 authentication checks | 28 of 28 checks pass on the rebuilt stack |
+| 69 | Checked the live feed through the login with `curl` | `event:connected` with credentials, 401 without; challenge header is `Basic realm="Trade Store"` |
+| 70 | Did not type the password into the browser's own login prompt | The login prompt is a browser dialog that page automation cannot drive; the equivalent requests were verified with `curl` and the regression script |
+| 71 | HLD: known issue "Simple Basic auth is used for demo purpose" (section 11, renamed "Known issues, risks and next steps"), security NFR row, deployment diagram, test counts | — |
+| 72 | HLD: new section 12 "Recommended authentication and authorisation design" with diagram `security-target.svg` | OAuth 2.0 / OpenID Connect; authorisation code + PKCE for users, client credentials for systems; scopes `trades:write`, `trades:read`, `simulator:run`, `ops:read`; data-level entitlements; Kafka access lists; database roles; migration steps |
+| 73 | README and `docs/CODE_REVIEW.md` updated | Review now has a "Changes since this review" table: SEC-1, SEC-2 and SEC-6 partly addressed, ARCH-6 fixed |
+| 74 | Full checks | 74 backend tests and 12 dashboard tests pass; PDF re-rendered (19 pages) |
+
+Known limits of this step: one shared account, no roles, no TLS, and the password has a default in the code and Compose file. These are stated in the HLD and README.

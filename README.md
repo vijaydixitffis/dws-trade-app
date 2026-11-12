@@ -31,6 +31,12 @@ Only Docker is needed.
 docker compose -f deploy/docker-compose.yml up --build
 ```
 
+Sign in with user `admin` and password `admin@2026!`. The browser asks for them when the
+dashboard opens, and every API call needs them too (HTTP Basic). This is simple Basic auth for
+demo purposes: one shared account, no roles, no TLS. Change the account with
+`TRADE_SECURITY_USERNAME` and `TRADE_SECURITY_PASSWORD`. The recommended production design is in
+section 12 of the HLD.
+
 | What | Where |
 |---|---|
 | Dashboard | http://localhost:8080 |
@@ -42,7 +48,7 @@ docker compose -f deploy/docker-compose.yml up --build
 Post a trade:
 
 ```bash
-curl -i -X POST http://localhost:8081/api/v1/trades -H 'Content-Type: application/json' -d '{"tradeId":"T1","version":1,"counterPartyId":"CP-1","bookId":"B1","maturityDate":"2030-05-20"}'
+curl -i -u 'admin:admin@2026!' -X POST http://localhost:8081/api/v1/trades -H 'Content-Type: application/json' -d '{"tradeId":"T1","version":1,"counterPartyId":"CP-1","bookId":"B1","maturityDate":"2030-05-20"}'
 ```
 
 Or open the dashboard and use the simulator panel:
@@ -122,7 +128,8 @@ NVD_API_KEY=your-key mvn -Psecurity-scan -DskipTests verify
 
 ## Known limits
 
-- No authentication or TLS; the APIs are open.
+- Simple Basic auth is used for demo purposes: one shared administrator account, no roles, and no
+  TLS, so the password can be read on the network.
 - Single Kafka broker and single database instances in the Compose file.
 - The dashboard's live feed is delivered by whichever query-service instance consumed the
   event. With several instances the dashboard still refreshes by polling every three seconds.

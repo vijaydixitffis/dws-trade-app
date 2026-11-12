@@ -218,6 +218,20 @@ test('the run buttons are unavailable while a run is in progress', async () => {
   expect(screen.getByRole('button', { name: 'Detailed run' })).toBeDisabled();
 });
 
+test('calls the services through same-origin paths so the browser login covers them', async () => {
+  stubFetch();
+  render(<App />);
+  await screen.findByText('T1');
+
+  expect(calls.map((call) => call.url)).toEqual(
+    expect.arrayContaining([
+      '/query/api/v1/summary',
+      expect.stringMatching(/^\/query\/api\/v1\/trades\?/),
+      '/simulator/api/v1/simulations/current',
+    ]),
+  );
+});
+
 test('says so when the store is empty', async () => {
   stubFetch({ trades: { total: 0, page: 0, size: 25, items: [] } });
   render(<App />);
