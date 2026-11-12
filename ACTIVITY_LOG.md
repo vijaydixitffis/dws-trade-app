@@ -256,3 +256,4 @@ Known limits of this step: one shared account, no roles, no TLS, and the passwor
 - TLS, tokens, a gateway, a shared rate limit (HLD sections 11 and 12).
 - Phase 9 (load run and tuning) remains on hold.
 - OWASP Dependency-Check has not run (needs an NVD key).
+| 89 | First CI run of this work: backend, dashboard, regression, image scan and CodeQL passed; the dependency scans passed but the software bill of materials step failed because containerised Trivy was rate-limited by Maven Central (the same cause hit locally) | Mounted the runner's Maven cache into the step and pushed the fix |

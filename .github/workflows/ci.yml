@@ -95,7 +95,11 @@ jobs:
           name: dependency-check-report
           path: target/dependency-check-report.html
       - name: Software bill of materials (CycloneDX)
-        run: docker run --rm -v "$PWD":/src "$TRIVY_IMAGE" fs --format cyclonedx --output /src/sbom.cdx.json /src
+        # The runner's Maven cache (filled by the install step above) is mounted so Trivy does not
+        # fetch every pom again from Maven Central, which rate-limits CI runners.
+        run: |
+          docker run --rm -v "$PWD":/src -v "$HOME/.m2":/root/.m2 "$TRIVY_IMAGE" \
+            fs --offline-scan --format cyclonedx --output /src/sbom.cdx.json /src
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom
