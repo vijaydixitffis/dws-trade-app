@@ -169,3 +169,15 @@ To regenerate the PDF after editing `docs/hld/hld.html`:
 | 52 | Rebuilt the simulator and dashboard containers; ran a detailed run through the API and opened both dialogs in the browser | Trades arrived with the chosen counter-parties, book, prefix and maturity window; dialogs render correctly |
 | 53 | Full checks | 63 backend tests pass, regression passes, `npm audit` reports 0 vulnerabilities |
 | 54 | Updated README, HLD (component, test and interface text) and re-rendered the PDF and pipeline diagram | Test counts now 63 backend and 11 dashboard |
+
+### Prompt 8 (verbatim)
+
+> 1. Add PDF HLD on the title page - Submitted By: Vijaykumar Dixit and append on footer submitted by Vijaykumar Dixit
+> 2. Ensure activity log is updated and checked in
+> 3. Tag the repo with label "mvp1-dev-12Nov10pm"
+
+| # | Action | Result |
+|---|---|---|
+| 55 | Added "Submitted by: Vijaykumar Dixit" to the HLD title page and "Submitted by Vijaykumar Dixit" to the footer of every page after the title page (the title page itself has no footer) | PDF re-rendered |
+| 56 | Brought this activity log up to date and committed it | This entry |
+| 57 | Created and pushed the tag `mvp1-dev-12Nov10pm` on the commit that contains this entry | Tag points at the final commit of this step |
