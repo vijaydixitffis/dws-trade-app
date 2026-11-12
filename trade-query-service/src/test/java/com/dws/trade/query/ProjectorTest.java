@@ -83,4 +83,35 @@ class ProjectorTest {
         assertThat(history.countRejections("MATURITY_DATE_PASSED")).isEqualTo(1);
         assertThat(history.latestRejections(10).get(0).message()).isEqualTo("why");
     }
+
+    @Test
+    void theFirstDeliveryOfAnEventWinsWhenARedeliveryCarriesAnotherType() throws Exception {
+        // After a crash the processor can reprocess a record and describe it differently
+        // (REPLACED instead of ACCEPTED). The history keeps what was said first.
+        projector.onEvent(event("trades.inbound-0-1", "ACCEPTED", "2026-11-12T10:00:00Z"));
+        projector.onEvent(event("trades.inbound-0-1", "REPLACED", "2026-11-12T10:00:05Z"));
+
+        List<EventDocument> events = history.latestEvents(10);
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).type().name()).isEqualTo("ACCEPTED");
+    }
+
+    @Test
+    void theFirstDeliveryOfARejectionWins() throws Exception {
+        projector.onRejection(rejection("r1", "LOWER_VERSION"));
+        projector.onRejection(rejection("r1", "MATURITY_DATE_PASSED"));
+
+        assertThat(history.latestRejections(10)).singleElement()
+                .satisfies(r -> assertThat(r.reason().name()).isEqualTo("LOWER_VERSION"));
+    }
+
+    @Test
+    void storesDatesAsPlainIsoStringsSoTheyDoNotDependOnTheServerTimeZone() throws Exception {
+        projector.onEvent(event("trades.inbound-0-9", "ACCEPTED", "2026-11-12T10:00:00Z"));
+
+        org.bson.Document raw = mongo.getCollection("trade_events").find().first();
+        org.bson.Document trade = (org.bson.Document) raw.get("trade");
+        assertThat(trade.get("maturityDate")).isEqualTo("2027-05-20");
+        assertThat(trade.get("createdDate")).isEqualTo("2026-11-12");
+    }
 }

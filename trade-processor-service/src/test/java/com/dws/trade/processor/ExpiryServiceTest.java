@@ -1,12 +1,12 @@
 package com.dws.trade.processor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 
-import com.dws.trade.event.TradeEvent;
-import com.dws.trade.event.TradeEventType;
+import com.dws.trade.processor.outbox.OutboxWriter;
 import com.dws.trade.processor.expiry.ExpiryService;
 import java.time.Clock;
 import java.time.Instant;
@@ -15,7 +15,6 @@ import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jdbc.test.autoconfigure.JdbcTest;
@@ -26,6 +25,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.json.JsonMapper;
 
 /** Rule 3: once a trade's maturity date has passed, the store marks it expired. */
 @JdbcTest
@@ -47,16 +47,19 @@ class ExpiryServiceTest {
     @Autowired
     PlatformTransactionManager transactionManager;
 
-    private final OutcomePublisher publisher = mock(OutcomePublisher.class);
 
     @BeforeEach
     void emptyStore() {
-        jdbc.update("TRUNCATE trade, trade_latest");
+        jdbc.update("TRUNCATE trade, trade_latest, outbox");
     }
 
     private ExpiryService service(int batchSize) {
-        return new ExpiryService(jdbc, new TransactionTemplate(transactionManager), publisher,
-                Clock.fixed(NOW, ZONE), batchSize);
+        return service(new OutboxWriter(jdbc, JsonMapper.builder().findAndAddModules().build()), batchSize);
+    }
+
+    private ExpiryService service(OutboxWriter writer, int batchSize) {
+        return new ExpiryService(jdbc, new TransactionTemplate(transactionManager), writer, Clock.fixed(NOW, ZONE),
+                batchSize);
     }
 
     private void insert(String id, int version, LocalDate maturity, String expired) {
@@ -83,18 +86,28 @@ class ExpiryServiceTest {
     }
 
     @Test
-    void publishesOneExpiredEventPerTradeAndSkipsAlreadyExpiredTrades() {
+    void writesOneExpiredEventPerTradeToTheOutboxAndSkipsAlreadyExpiredTrades() {
         insert("MATURED", 3, TODAY.minusDays(1), "N");
         insert("OLD", 1, TODAY.minusDays(50), "Y");
 
         service(100).expireMatured();
 
-        ArgumentCaptor<TradeEvent> event = ArgumentCaptor.forClass(TradeEvent.class);
-        verify(publisher, times(1)).event(event.capture());
-        assertThat(event.getValue().eventId()).isEqualTo("expired-MATURED-3");
-        assertThat(event.getValue().type()).isEqualTo(TradeEventType.EXPIRED);
-        assertThat(event.getValue().trade().expired()).isTrue();
-        assertThat(event.getValue().at()).isEqualTo(NOW);
+        assertThat(jdbc.queryForList("SELECT event_id FROM outbox", String.class)).containsExactly("expired-MATURED-3");
+        String payload = jdbc.queryForObject("SELECT payload FROM outbox", String.class);
+        assertThat(payload).contains("\"type\":\"EXPIRED\"").contains("\"expired\":true");
+        assertThat(jdbc.queryForObject("SELECT message_key FROM outbox", String.class)).isEqualTo("MATURED");
+    }
+
+    @Test
+    void marksNothingExpiredWhenItsEventCannotBeWritten() {
+        insert("MATURED", 1, TODAY.minusDays(1), "N");
+        OutboxWriter failing = mock(OutboxWriter.class);
+        doThrow(new IllegalStateException("outbox down")).when(failing).write(any());
+
+        assertThatThrownBy(() -> service(failing, 100).expireMatured()).hasMessage("outbox down");
+
+        assertThat(expiredFlag("MATURED")).isEqualTo("N");
+        assertThat(service(100).expireMatured()).isEqualTo(1);
     }
 
     @Test
