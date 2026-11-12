@@ -3,8 +3,8 @@ package com.dws.trade.processor;
 import com.dws.trade.event.Topics;
 import com.dws.trade.event.TradeEvent;
 import com.dws.trade.event.TradeRejection;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -44,7 +44,7 @@ public class KafkaOutcomePublisher implements OutcomePublisher {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted while publishing to " + topic, e);
-        } catch (JsonProcessingException | ExecutionException | TimeoutException e) {
+        } catch (JacksonException | ExecutionException | TimeoutException e) {
             throw new IllegalStateException("Could not publish to " + topic, e);
         }
     }

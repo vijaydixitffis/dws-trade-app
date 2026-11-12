@@ -1,13 +1,13 @@
 package com.dws.trade.processor;
 
 import org.springframework.test.context.DynamicPropertyRegistry;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.kafka.KafkaContainer;
 
 /** Containers shared by every test class in the module; started once per JVM. */
 public final class Containers {
 
-    public static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
+    public static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine");
     public static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:3.9.1");
 
     private Containers() {

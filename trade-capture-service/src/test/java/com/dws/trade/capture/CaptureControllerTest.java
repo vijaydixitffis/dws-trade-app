@@ -21,7 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -81,7 +81,7 @@ class CaptureControllerTest {
     @Test
     void rejectsPastMaturityWith422AndRecordsTheRejection() throws Exception {
         mvc.perform(post("/api/v1/trades").contentType(MediaType.APPLICATION_JSON).content(json("T3", 3, "2026-11-11")))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.status").value("REJECTED"))
                 .andExpect(jsonPath("$.reason").value("MATURITY_DATE_PASSED"))
                 .andExpect(jsonPath("$.message").value("Trade T3 maturity date 2026-11-11 is earlier than today 2026-11-12"));

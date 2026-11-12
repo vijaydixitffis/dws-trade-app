@@ -11,9 +11,10 @@ spring:
     url: jdbc:postgresql://localhost:5432/tradestore
     username: trade
     password: trade
+  mongodb:
+    uri: mongodb://localhost:27017/tradestore
   data:
     mongodb:
-      uri: mongodb://localhost:27017/tradestore
       auto-index-creation: true
   kafka:
     bootstrap-servers: localhost:9092

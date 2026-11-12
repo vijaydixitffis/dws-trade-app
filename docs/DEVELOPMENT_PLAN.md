@@ -24,7 +24,7 @@ A client who only wants to run the system needs Docker alone: `docker compose up
 | Role | Choice | Notes |
 |---|---|---|
 | Application server | Embedded Tomcat inside each Spring Boot jar | No separate app server to install |
-| Framework | Spring Boot 3.5.x (exact patch pinned when scaffolding) | Web, Kafka, JDBC, Data MongoDB, Actuator, Validation |
+| Framework | Spring Boot 4.1.2 | Web, Kafka, JDBC, Data MongoDB, Actuator, Validation |
 | Streaming | Apache Kafka, KRaft mode, `apache/kafka` image | Single container locally |
 | SQL database | PostgreSQL 17 | Trade store |
 | NoSQL database | MongoDB 8.2 | Events and rejections |

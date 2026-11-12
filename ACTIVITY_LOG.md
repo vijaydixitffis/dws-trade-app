@@ -112,3 +112,20 @@ For each backend phase the test classes were written first and committed with a 
 - OWASP Dependency-Check has not been run: it needs an NVD API key. Trivy has not been run locally; it runs in the pipeline.
 - First pipeline run (43247039332): backend, dashboard and end-to-end regression jobs passed; the vulnerability scan job failed before scanning because the Trivy action tag `0.33.1` does not exist. Corrected to `v0.36.0` and pushed again.
 - Second pipeline run (43247952405): backend, dashboard and end-to-end regression jobs passed. The vulnerability scan ran and failed the build, as designed: Trivy reports critical CVEs in `tomcat-embed-core` 10.1.55 (CVE-2026-55276, -65182, -65637, -65905, -68525) and `spring-webmvc` 6.2.19 (CVE-2026-47884, -47890), both brought in by Spring Boot 3.5.16. The Spring fixes are only in Spring Framework 7.0.9, which means moving to Spring Boot 4. One Tomcat CVE (CVE-2026-68525) has no fixed version listed. Not yet resolved; awaiting a decision.
+
+## Session 2 (continued) — Vulnerability scan fix
+
+### Prompt 4 (verbatim)
+
+> Vulnerability scan failed again
+
+| # | Action | Result |
+|---|---|---|
+| 34 | Read the failing scan log (run 43248693415) | Same cause as before: 28 critical findings, all in Tomcat 10.1.55 and Spring MVC 6.2.19 from Spring Boot 3.5.16 |
+| 35 | Migrated the build to Spring Boot 4.1.2 (Spring Framework 7.0.10, Tomcat 11.0.27, Jackson 3, Testcontainers 2, ShedLock 7.11.0) | New starters (`webmvc`, `kafka`, `flyway`, `restclient`) and split test modules; `tools.jackson` imports; Testcontainers 2 class names; `spring.mongodb.uri`; HTTP 422 constant renamed to `UNPROCESSABLE_CONTENT` |
+| 36 | Fixed two simulator tests that returned 400 under Jackson 3 | Jackson 3 refuses missing primitive fields by default; `fail-on-null-for-primitives: false` makes omitted percentages zero |
+| 37 | `mvn clean verify` | 54 tests pass, coverage gate met |
+| 38 | Trivy scan in Docker with the local Maven cache (the first attempt was rate-limited by Maven Central) | 0 critical findings in every module and in the dashboard |
+| 39 | Rebuilt and restarted the Compose stack, ran `deploy/regression.sh` | Regression passes on Spring Boot 4 |
+
+Earlier note about CVE-2026-68525 having no fixed Tomcat version is superseded: Tomcat 11.0.27 is not flagged.

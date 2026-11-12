@@ -3,8 +3,8 @@ package com.dws.trade.query;
 import com.dws.trade.event.Topics;
 import com.dws.trade.event.TradeEvent;
 import com.dws.trade.event.TradeRejection;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -23,14 +23,14 @@ public class Projector {
     }
 
     @KafkaListener(topics = Topics.EVENTS)
-    public void onEvent(String json) throws JsonProcessingException {
+    public void onEvent(String json) throws JacksonException {
         TradeEvent event = mapper.readValue(json, TradeEvent.class);
         history.save(new EventDocument(event.eventId(), event.type(), event.trade(), event.at()));
         liveFeed.publish("trade-event", json);
     }
 
     @KafkaListener(topics = Topics.REJECTED)
-    public void onRejection(String json) throws JsonProcessingException {
+    public void onRejection(String json) throws JacksonException {
         TradeRejection rejection = mapper.readValue(json, TradeRejection.class);
         history.save(new RejectionDocument(rejection.eventId(), rejection.reason(), rejection.message(),
                 rejection.trade(), rejection.source(), rejection.at()));

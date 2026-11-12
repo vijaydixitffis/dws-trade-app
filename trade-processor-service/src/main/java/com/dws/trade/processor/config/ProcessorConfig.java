@@ -4,7 +4,7 @@ import com.dws.trade.event.Topics;
 import com.dws.trade.processor.OutcomePublisher;
 import com.dws.trade.processor.expiry.ExpiryService;
 import com.dws.trade.time.BusinessClock;
-import com.fasterxml.jackson.core.JsonProcessingException;
+import tools.jackson.core.JacksonException;
 import java.time.Clock;
 import javax.sql.DataSource;
 import net.javacrumbs.shedlock.core.LockProvider;
@@ -68,7 +68,7 @@ public class ProcessorConfig {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafka,
                 (record, exception) -> new TopicPartition(Topics.INBOUND_DLT, 0));
         DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(intervalMs, maxAttempts));
-        handler.addNotRetryableExceptions(JsonProcessingException.class, IllegalArgumentException.class);
+        handler.addNotRetryableExceptions(JacksonException.class, IllegalArgumentException.class);
         return handler;
     }
 

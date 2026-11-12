@@ -30,7 +30,7 @@ public class CaptureController {
     @PostMapping
     public ResponseEntity<CaptureResult> capture(@Valid @RequestBody Trade trade) {
         CaptureResult result = service.capture(trade);
-        HttpStatus status = result.rejected() ? HttpStatus.UNPROCESSABLE_ENTITY : HttpStatus.ACCEPTED;
+        HttpStatus status = result.rejected() ? HttpStatus.UNPROCESSABLE_CONTENT : HttpStatus.ACCEPTED;
         return ResponseEntity.status(status).body(result);
     }
 

@@ -2,8 +2,8 @@ package com.dws.trade.processor;
 
 import com.dws.trade.event.Topics;
 import com.dws.trade.model.Trade;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import java.util.Set;
@@ -31,7 +31,7 @@ public class TradeListener {
     }
 
     @KafkaListener(topics = Topics.INBOUND, concurrency = "${trade.processor.concurrency}")
-    public void onTrade(ConsumerRecord<String, String> record) throws JsonProcessingException {
+    public void onTrade(ConsumerRecord<String, String> record) throws JacksonException {
         Trade trade = mapper.readValue(record.value(), Trade.class);
         Set<ConstraintViolation<Trade>> violations = validator.validate(trade);
         if (!violations.isEmpty()) {

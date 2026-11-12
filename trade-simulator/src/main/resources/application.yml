@@ -10,6 +10,10 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  jackson:
+    # Percentages left out of a run request mean zero (Jackson 3 refuses missing primitives by default).
+    deserialization:
+      fail-on-null-for-primitives: false
 
 simulator:
   capture-url: http://localhost:8081

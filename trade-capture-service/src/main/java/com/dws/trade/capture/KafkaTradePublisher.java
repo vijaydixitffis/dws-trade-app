@@ -3,8 +3,7 @@ package com.dws.trade.capture;
 import com.dws.trade.event.Topics;
 import com.dws.trade.event.TradeRejection;
 import com.dws.trade.model.Trade;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.util.concurrent.CompletableFuture;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -34,7 +33,7 @@ public class KafkaTradePublisher implements TradePublisher {
     private CompletableFuture<Void> send(String topic, String key, Object payload) {
         try {
             return kafka.send(topic, key, mapper.writeValueAsString(payload)).thenApply(result -> null);
-        } catch (JsonProcessingException | RuntimeException e) {
+        } catch (RuntimeException e) {
             return CompletableFuture.failedFuture(e);
         }
     }

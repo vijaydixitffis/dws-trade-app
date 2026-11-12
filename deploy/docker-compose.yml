@@ -83,7 +83,7 @@ services:
     environment:
       <<: *env
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/tradestore
-      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/tradestore
+      SPRING_MONGODB_URI: mongodb://mongo:27017/tradestore
     depends_on:
       kafka: { condition: service_healthy }
       mongo: { condition: service_healthy }
