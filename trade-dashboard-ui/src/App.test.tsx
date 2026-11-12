@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 
@@ -104,18 +104,118 @@ test('filters the store by trade id prefix', async () => {
   await waitFor(() => expect(calls.some((call) => call.url.includes('tradeId=T2'))).toBe(true));
 });
 
-test('starts a simulator run with the values on the form', async () => {
+async function openDialog(button: 'Quick run' | 'Detailed run') {
+  const opener = await screen.findByRole('button', { name: button });
+  await waitFor(() => expect(opener).toBeEnabled());
+  await userEvent.click(opener);
+  return screen.findByRole('dialog');
+}
+
+function lastPost() {
+  const post = calls.filter((call) => call.init?.method === 'POST').pop();
+  return { url: post?.url, body: JSON.parse(String(post?.init?.body ?? '{}')) };
+}
+
+test('quick run opens a dialog with the bulk settings and starts a run with them', async () => {
   stubFetch();
   render(<App />);
-  const start = await screen.findByRole('button', { name: 'Start run' });
-  await waitFor(() => expect(start).toBeEnabled());
 
-  await userEvent.click(start);
+  const dialog = await openDialog('Quick run');
+  expect(within(dialog).getByRole('heading', { name: 'Quick run' })).toBeInTheDocument();
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Start run' }));
 
-  const post = calls.find((call) => call.init?.method === 'POST');
-  expect(post?.url).toContain('/api/v1/simulations');
-  expect(JSON.parse(String(post?.init?.body))).toMatchObject({ count: 5000, ratePerSecond: 500, lowerVersionPct: 10 });
+  const { url, body } = lastPost();
+  expect(url).toContain('/api/v1/simulations');
+  expect(body).toMatchObject({ count: 5000, ratePerSecond: 500, lowerVersionPct: 10 });
+  expect(body.counterParties).toBeUndefined();
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   expect(await screen.findByRole('button', { name: 'Stop run' })).toBeInTheDocument();
+});
+
+test('quick run can be cancelled with the button, Escape or a click outside the dialog', async () => {
+  stubFetch();
+  render(<App />);
+
+  await openDialog('Quick run');
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+  await openDialog('Quick run');
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+  await openDialog('Quick run');
+  await userEvent.click(screen.getByTestId('modal-backdrop'));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(calls.some((call) => call.init?.method === 'POST')).toBe(false);
+});
+
+test('detailed run sends the chosen counter-parties, books, maturity window and trade id prefix', async () => {
+  stubFetch();
+  render(<App />);
+
+  const dialog = await openDialog('Detailed run');
+  expect(within(dialog).getByRole('heading', { name: 'Detailed run' })).toBeInTheDocument();
+  await userEvent.type(within(dialog).getByLabelText('Counter-party ids'), 'ACME, GLOBEX{enter}ACME');
+  await userEvent.type(within(dialog).getByLabelText('Book ids'), 'EQ-1');
+  await userEvent.clear(within(dialog).getByLabelText('Earliest maturity (days ahead)'));
+  await userEvent.type(within(dialog).getByLabelText('Earliest maturity (days ahead)'), '30');
+  await userEvent.clear(within(dialog).getByLabelText('Latest maturity (days ahead)'));
+  await userEvent.type(within(dialog).getByLabelText('Latest maturity (days ahead)'), '90');
+  await userEvent.type(within(dialog).getByLabelText('Trade id prefix'), 'DEMO');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Start run' }));
+
+  expect(lastPost().body).toMatchObject({
+    count: 5000,
+    counterParties: ['ACME', 'GLOBEX'],
+    books: ['EQ-1'],
+    minMaturityDays: 30,
+    maxMaturityDays: 90,
+    tradeIdPrefix: 'DEMO',
+  });
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+});
+
+test('detailed run lets the scenario mix be chosen with sliders and shows the remainder as new trades', async () => {
+  stubFetch();
+  render(<App />);
+  const dialog = await openDialog('Detailed run');
+  expect(within(dialog).getByText('New trades: 50 %')).toBeInTheDocument();
+
+  fireEvent.change(within(dialog).getByLabelText('Lower version %'), { target: { value: '40' } });
+  expect(within(dialog).getByText('New trades: 20 %')).toBeInTheDocument();
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Start run' }));
+
+  expect(lastPost().body).toMatchObject({ lowerVersionPct: 40, higherVersionPct: 20, pastMaturityPct: 10 });
+});
+
+test('detailed run refuses a mix above 100 % or a maturity window that ends before it starts', async () => {
+  stubFetch();
+  render(<App />);
+  const dialog = await openDialog('Detailed run');
+  const start = within(dialog).getByRole('button', { name: 'Start run' });
+
+  fireEvent.change(within(dialog).getByLabelText('Higher version %'), { target: { value: '90' } });
+  expect(within(dialog).getByText('The four percentages must not exceed 100.')).toBeInTheDocument();
+  expect(start).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText('Higher version %'), { target: { value: '20' } });
+  expect(start).toBeEnabled();
+
+  fireEvent.change(within(dialog).getByLabelText('Earliest maturity (days ahead)'), { target: { value: '50' } });
+  fireEvent.change(within(dialog).getByLabelText('Latest maturity (days ahead)'), { target: { value: '10' } });
+  expect(within(dialog).getByText('The latest maturity must not be before the earliest.')).toBeInTheDocument();
+  expect(start).toBeDisabled();
+});
+
+test('the run buttons are unavailable while a run is in progress', async () => {
+  stubFetch();
+  render(<App />);
+  const dialog = await openDialog('Quick run');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Start run' }));
+
+  expect(await screen.findByRole('button', { name: 'Stop run' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Quick run' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Detailed run' })).toBeDisabled();
 });
 
 test('says so when the store is empty', async () => {
