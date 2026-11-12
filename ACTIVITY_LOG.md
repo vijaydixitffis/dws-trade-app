@@ -141,3 +141,18 @@ Earlier note about CVE-2026-68525 having no fixed Tomcat version is superseded: 
 | 41 | Installed Graphviz (`brew install graphviz`) | The built-in layout engine placed boxes poorly; Graphviz gives a clean top-to-bottom flow. Re-render with `java -jar plantuml.jar -tsvg component.puml` |
 | 42 | Re-rendered `component.svg` and checked the image | Dashboard-to-query arrow still crosses the diagram on its way down; left as is |
 | 43 | Phase 9 | On hold until instructed |
+
+### Prompt 6 (verbatim)
+
+> Create a PDF High level design and architecture document using svg diagrams in sequence starting with a problem statement, and usual HLD sections with explaining how NFRs are taken care in the solution
+
+| # | Action | Result |
+|---|---|---|
+| 44 | Added three PlantUML diagrams: `deployment.puml`, `data-model.puml`, `cicd.puml`, and rendered SVGs | Together with the component and two sequence diagrams there are six diagrams |
+| 45 | Narrowed the trade-flow sequence diagram by wrapping long messages, and corrected its label "consume batch" to "consume record" (the processor handles one record at a time) | `sequence-trade-flow.svg` re-rendered |
+| 46 | Wrote `docs/hld/hld.html` and rendered it to `docs/Trade-Store-HLD.pdf` with headless Chrome | 15 pages: cover, contents, problem statement, scope and decisions, components, technology, runtime flows (landscape page for the sequence diagram), rules, data, deployment, NFR table, testing and pipeline, risks, traceability, appendix |
+| 47 | Section 9 of the PDF marks every NFR as met, partly met or not yet met | Gaps stated plainly: throughput not yet measured, no authentication or TLS, single broker in Compose, no correlation ids, unbounded MongoDB history |
+| 48 | Checked the pipeline before stating it is green | Both latest runs on `main` succeeded |
+
+To regenerate the PDF after editing `docs/hld/hld.html`:
+`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --no-pdf-header-footer --print-to-pdf=docs/Trade-Store-HLD.pdf file://$PWD/docs/hld/hld.html`

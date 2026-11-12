@@ -1,0 +1,53 @@
+@startuml data-model
+title Trade Store - Data Model
+hide circle
+skinparam linetype ortho
+top to bottom direction
+skinparam defaultTextAlignment center
+
+package "PostgreSQL (system of record)" {
+  entity "trade_latest" as latest {
+    * trade_id : varchar <<PK>>
+    --
+    latest_version : integer
+  }
+  entity "trade" as trade {
+    * trade_id : varchar <<PK>>
+    * version : integer <<PK>>
+    --
+    counter_party_id : varchar
+    book_id : varchar
+    maturity_date : date
+    created_date : date
+    expired : char(1) Y or N
+  }
+  entity "shedlock" as lock {
+    * name : varchar <<PK>>
+    --
+    lock_until, locked_at, locked_by
+  }
+}
+
+package "MongoDB (history and audit)" {
+  entity "trade_events" as events {
+    * _id : eventId <<PK>>
+    --
+    type : ACCEPTED, REPLACED, EXPIRED
+    trade : embedded stored trade
+    at : instant
+  }
+  entity "trade_rejections" as rej {
+    * _id : eventId <<PK>>
+    --
+    reason : LOWER_VERSION, MATURITY_DATE_PASSED
+    message, source : CAPTURE or PROCESSOR
+    trade : embedded trade
+    at : instant
+  }
+}
+
+latest ||..o{ trade : "highest version\nof a trade id"
+lock -[hidden]down-> events
+trade -[hidden]down-> events
+events -[hidden]right-> rej
+@enduml

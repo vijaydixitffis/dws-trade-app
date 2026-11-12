@@ -1,6 +1,9 @@
 @startuml sequence-trade-flow
 title Trade Store - Trade Flow
 autonumber
+skinparam maxMessageSize 170
+skinparam ParticipantPadding 8
+skinparam BoxPadding 8
 
 participant "Simulator" as sim
 participant "Capture API" as cap
@@ -20,7 +23,7 @@ else structurally valid
   cap --> sim : 202 Accepted
 end
 
-k -> proc : consume batch
+k -> proc : consume record
 proc -> proc : re-check maturity
 proc -> pg : upsert trade_latest\nWHERE latest_version <= incoming
 

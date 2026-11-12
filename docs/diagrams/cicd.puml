@@ -1,0 +1,21 @@
+@startuml cicd
+title Trade Store - Delivery Pipeline (GitHub Actions)
+skinparam defaultTextAlignment center
+left to right direction
+
+rectangle "git push / pull request" as push
+
+rectangle "backend\nmvn verify\n54 tests, JaCoCo gate" as backend
+rectangle "frontend\nnpm test, build" as frontend
+rectangle "vulnerability scan\nTrivy + npm audit\n(+ OWASP DC with NVD key)\nfails on CRITICAL" as scan
+rectangle "end-to-end regression\nDocker Compose +\nregression.sh" as e2e
+rectangle "build passes" as ok
+
+push --> backend
+push --> frontend
+push --> scan
+backend --> e2e
+frontend --> e2e
+e2e --> ok
+scan --> ok
+@enduml

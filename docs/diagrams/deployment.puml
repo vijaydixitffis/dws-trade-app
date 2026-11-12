@@ -1,0 +1,37 @@
+@startuml deployment
+title Trade Store - Deployment View (Docker Compose)
+skinparam defaultTextAlignment center
+skinparam nodesep 30
+skinparam ranksep 40
+top to bottom direction
+
+actor "Browser" as browser
+
+node "Docker host (one command: docker compose up)" as host {
+  node "Web" as web {
+    artifact "trade-dashboard-ui\nnginx :8080" as ui
+  }
+  node "Application services (Spring Boot 4, Java 21)" as apps {
+    artifact "trade-capture-service\n:8081" as capture
+    artifact "trade-processor-service\n:8082" as processor
+    artifact "trade-query-service\n:8083" as query
+    artifact "trade-simulator\n:8084" as sim
+  }
+  node "Infrastructure" as infra {
+    queue "Apache Kafka 3.9\nKRaft, single broker :9092" as kafka
+    database "PostgreSQL 17\n:5432" as pg
+    database "MongoDB 8.2\n:27017" as mongo
+  }
+}
+
+browser --> ui : HTTP
+browser --> query : REST, SSE
+browser --> sim : REST
+sim --> capture : HTTP
+capture --> kafka
+processor --> kafka
+query --> kafka
+processor --> pg
+query --> pg
+query --> mongo
+@enduml

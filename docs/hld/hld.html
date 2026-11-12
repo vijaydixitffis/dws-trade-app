@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trade Store - High-Level Design and Architecture</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm;
+    @bottom-left { content: "Trade Store - High-Level Design"; font: 8pt "Helvetica Neue", Arial, sans-serif; color: #5b6770; }
+    @bottom-right { content: "Page " counter(page); font: 8pt "Helvetica Neue", Arial, sans-serif; color: #5b6770; } }
+  @page wide { size: A4 landscape; margin: 14mm 14mm 16mm 14mm; }
+  @page cover { margin: 0; @bottom-left { content: ""; } @bottom-right { content: ""; } }
+  :root { --navy:#1f3a5f; --blue:#2f6fb0; --pale:#e6eef7; --g900:#2b3640; --g600:#5b6770; --g300:#cfd6dd; --g100:#f3f5f7; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 10pt/1.45 "Helvetica Neue", Arial, sans-serif; color: var(--g900); }
+  h1 { font-size: 18pt; color: var(--navy); border-bottom: 2px solid var(--blue); padding-bottom: 4px; margin: 26px 0 10px; }
+  section.pb h1, .wide h1 { margin-top: 0; }
+  h2 { font-size: 12.5pt; color: var(--navy); margin: 18px 0 6px; }
+  h3 { font-size: 10.5pt; color: var(--blue); margin: 12px 0 4px; }
+  p { margin: 5px 0 7px; }
+  ul, ol { margin: 4px 0 8px; padding-left: 20px; } li { margin: 2px 0; }
+  section.pb { break-before: page; }
+  h1, h2, h3 { break-after: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 9pt; break-inside: auto; }
+  tr { break-inside: avoid; }
+  th { text-align: left; background: var(--pale); color: var(--navy); padding: 5px 7px; border: 1px solid var(--g300); }
+  td { padding: 4px 7px; border: 1px solid var(--g300); vertical-align: top; }
+  code { font: 8.5pt Menlo, Consolas, monospace; background: var(--g100); padding: 0 3px; }
+  pre { font: 8pt/1.35 Menlo, Consolas, monospace; background: var(--g100); border: 1px solid var(--g300); padding: 8px; margin: 6px 0 10px; white-space: pre-wrap; }
+  figure { margin: 8px 0 10px; text-align: center; break-inside: avoid; }
+  figure img { max-width: 100%; max-height: 135mm; }
+  figcaption { font-size: 8.5pt; color: var(--g600); margin-top: 3px; }
+  .note { background: var(--pale); border-left: 4px solid var(--blue); padding: 6px 10px; margin: 8px 0; }
+  .quote { border-left: 4px solid var(--g300); padding: 4px 12px; color: var(--g600); font-style: italic; }
+  .ok { color: var(--navy); font-weight: 600; } .gap { color: #7a4b00; font-weight: 600; }
+  .cover { page: cover; break-after: page; height: 297mm; background: var(--navy); color: #fff; padding: 70mm 22mm 20mm; }
+  .cover h1 { color: #fff; border: none; font-size: 30pt; line-height: 1.15; }
+  .cover .sub { font-size: 14pt; color: #cfdcec; margin-bottom: 36mm; }
+  .cover table { width: auto; font-size: 10pt; } .cover td { border: none; color: #e6eef7; padding: 3px 18px 3px 0; }
+  .wide { page: wide; break-before: page; break-after: page; }
+  .wide figure img { max-height: 150mm; }
+  .toc td { border: none; border-bottom: 1px dotted var(--g300); padding: 3px 0; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Trade Store</h1>
+  <div class="sub">High-Level Design and Architecture</div>
+  <table>
+    <tr><td>Version</td><td>1.0, 12 November 2026</td></tr>
+    <tr><td>Status</td><td>Implemented through phase 8; phase 9 (load run and tuning) on hold</td></tr>
+    <tr><td>Source</td><td>github.com/vijaydixitffis/dws-trade-app</td></tr>
+    <tr><td>Stack</td><td>Java 21, Spring Boot 4.1, Apache Kafka, PostgreSQL, MongoDB, React</td></tr>
+  </table>
+</div>
+
+<section class="pb">
+<h1>Contents</h1>
+<table class="toc">
+<tr><td>1. Problem statement</td></tr>
+<tr><td>2. Scope, goals and decisions</td></tr>
+<tr><td>3. Solution overview and components</td></tr>
+<tr><td>4. Technology choices</td></tr>
+<tr><td>5. Runtime flows</td></tr>
+<tr><td>6. Design of the three rules</td></tr>
+<tr><td>7. Data design</td></tr>
+<tr><td>8. Deployment view</td></tr>
+<tr><td>9. Non-functional requirements and how the solution meets them</td></tr>
+<tr><td>10. Quality, testing and delivery pipeline</td></tr>
+<tr><td>11. Risks, limitations and next steps</td></tr>
+<tr><td>12. Traceability from requirements to design and tests</td></tr>
+<tr><td>Appendix: interfaces and configuration</td></tr>
+</table>
+</section>
+
+<section>
+<h1>1. Problem statement</h1>
+<p>The assignment asks for a Java application using Spring Boot and a streaming tool, with both a SQL and a NoSQL database. It must be built test-first with JUnit, delivered through a pipeline (GitHub Actions preferred) that runs regression tests and an open-source vulnerability scan, and the build must fail on critical or blocker vulnerabilities. PlantUML diagrams are requested where feasible.</p>
+<p>The business problem is stated as follows.</p>
+<p class="quote">Thousands of trades are being sent to a single store, through any method of transmission. The objective is a trade store that organises and stores each trade in a specific sequence.</p>
+<p>Each trade carries: Trade Id, Version, Counter-Party Id, Book-Id, Maturity Date, Created Date and an Expired flag (Y or N). The store must enforce three rules.</p>
+<table>
+<tr><th style="width:6%">#</th><th>Rule from the assignment</th></tr>
+<tr><td>1</td><td>A trade with a lower version than the stored one is rejected with an exception. A trade with the same version replaces the current record.</td></tr>
+<tr><td>2</td><td>A trade whose maturity date is earlier than today is rejected.</td></tr>
+<tr><td>3</td><td>When a trade's maturity date has passed, the store automatically marks it as expired.</td></tr>
+</table>
+<p>The sample table in the assignment shows several versions of the same trade stored side by side (Trade T2 appears at version 2 and version 1), which tells us that the store keeps history rather than only the latest version.</p>
+<h3>What makes it hard</h3>
+<ul>
+<li><b>Volume and concurrency.</b> Many trades arrive at once, from any source, and several versions of one trade may be in flight together.</li>
+<li><b>Order sensitivity.</b> Rule 1 depends on the order trades arrive in; a lower version arriving late must not overwrite a higher one, even when two processors work in parallel.</li>
+<li><b>Time-based behaviour.</b> Rules 2 and 3 depend on "today", and rule 3 must act without any trade arriving.</li>
+<li><b>No lost trades.</b> A trade accepted for processing must end up either stored or rejected with a recorded reason.</li>
+</ul>
+</section>
+
+<section>
+<h1>2. Scope, goals and decisions</h1>
+<h3>In scope</h3>
+<ul>
+<li>A trade capture API, a streaming backbone, a trade processor that enforces the three rules, a SQL trade store, and a NoSQL history of outcomes.</li>
+<li>Additions requested by the sponsor: a trade posting simulator and a dashboard UI.</li>
+<li>A test-first build, a delivery pipeline with a vulnerability gate, and PlantUML diagrams.</li>
+</ul>
+<h3>Out of scope for this release</h3>
+<p>Authentication and authorisation, TLS, multi-broker Kafka and database replication in the supplied Compose file, Kubernetes manifests, and measured load-test figures (phase 9).</p>
+<h3>Decisions agreed with the sponsor</h3>
+<table>
+<tr><th style="width:26%">Topic</th><th>Decision</th></tr>
+<tr><td>Streaming tool</td><td>Apache Kafka, one container with no extra coordination service, so it can be demonstrated locally, in the pipeline and at a client site with Docker alone.</td></tr>
+<tr><td>Databases</td><td>PostgreSQL as the system of record; MongoDB for the history of store changes and rejections.</td></tr>
+<tr><td>Packaging</td><td>Separate Spring Boot services in one Maven multi-module repository, plus a React dashboard.</td></tr>
+<tr><td>Rejections</td><td>Domain exception, a rejected-trades topic, stored in MongoDB with the reason, shown on the dashboard; the capture API also answers HTTP 422 at once when it can decide alone (past maturity).</td></tr>
+<tr><td>Version history</td><td>Every version of a trade is kept, one row per (trade id, version).</td></tr>
+<tr><td>"Today"</td><td>The date in the server's own time zone; an administrator may configure another zone.</td></tr>
+<tr><td>Maturing today</td><td>Accepted. Only a date earlier than today is rejected (default, not objected to).</td></tr>
+<tr><td>Created Date on replace</td><td>Set to the date the replacing trade was received (default, not objected to).</td></tr>
+<tr><td>Sample dates in the assignment</td><td>The 2020 sample rows are ignored; all tests use dates relative to today.</td></tr>
+<tr><td>UI style</td><td>Plain corporate palette of blue, grey and white.</td></tr>
+</table>
+</section>
+
+<section class="pb">
+<h1>3. Solution overview and components</h1>
+<p>Trades enter through a stateless capture API and are placed on a Kafka topic keyed by trade id. A processor consumes the topic, applies the rules against PostgreSQL in a single transaction, and announces every outcome on Kafka. A separate query service turns those announcements into a MongoDB history and feeds the dashboard. The simulator and the dashboard sit at the top.</p>
+<figure><img src="../diagrams/component.svg" alt="Component view"><figcaption>Figure 1. Component view</figcaption></figure>
+<table>
+<tr><th style="width:23%">Component</th><th>Responsibility</th><th style="width:16%">State</th></tr>
+<tr><td>trade-simulator</td><td>Generates trades at a chosen rate and mix (new, higher, same and lower version, past maturity) and posts them to the capture API. Started and stopped through a REST API or the dashboard.</td><td>None</td></tr>
+<tr><td>trade-capture-service</td><td>Receives single and batch trades, validates structure, applies the maturity rule (HTTP 422 on failure, with the rejection recorded), and publishes accepted trades to <code>trades.inbound</code>. Answers 202 only after Kafka acknowledges the record.</td><td>None</td></tr>
+<tr><td>Kafka</td><td>Topics <code>trades.inbound</code>, <code>trades.events</code>, <code>trades.rejected</code> and <code>trades.inbound.DLT</code>.</td><td>Log</td></tr>
+<tr><td>trade-processor-service</td><td>Consumes the inbound topic, enforces the version and maturity rules in one database transaction, publishes the outcome, retries technical failures and parks unreadable records. Runs the expiry job.</td><td>PostgreSQL</td></tr>
+<tr><td>PostgreSQL</td><td>The trade store.</td><td>-</td></tr>
+<tr><td>trade-query-service</td><td>Projects outcome topics into MongoDB, serves the trade list from PostgreSQL and the history from MongoDB, and pushes live updates to the dashboard over Server-Sent Events.</td><td>MongoDB</td></tr>
+<tr><td>MongoDB</td><td>History of every store change and every rejection.</td><td>-</td></tr>
+<tr><td>trade-dashboard-ui</td><td>Summary counters, the trade store in sequence, rejected trades with reasons, and simulator controls.</td><td>None</td></tr>
+</table>
+<div class="note"><b>Why a separate query service.</b> The processor's only job is to keep up with the inbound stream. Dashboard reads and browser connections run elsewhere, so they cannot slow it down.</div>
+<div class="note"><b>Why the capture API does not write to the database.</b> It stays stateless and fast, Kafka absorbs bursts, and the processor can be stopped or redeployed without losing accepted trades.</div>
+</section>
+
+<section>
+<h1>4. Technology choices</h1>
+<table>
+<tr><th style="width:22%">Concern</th><th style="width:28%">Choice</th><th>Why</th></tr>
+<tr><td>Language and framework</td><td>Java 21, Spring Boot 4.1.2 (Spring Framework 7, Tomcat 11)</td><td>Required by the assignment. Boot 4 was adopted because the 3.5 line carried critical Tomcat and Spring MVC vulnerabilities that failed the pipeline's own gate.</td></tr>
+<tr><td>Streaming</td><td>Apache Kafka 3.9, single node, KRaft mode</td><td>Partitioning by key gives per-trade ordering; replayable log; runs from one container.</td></tr>
+<tr><td>SQL database</td><td>PostgreSQL 17</td><td>ACID transactions and an atomic conditional upsert (<code>INSERT ... ON CONFLICT ... WHERE</code>) that enforces the version rule safely under concurrency; row locks that skip locked rows for the expiry job.</td></tr>
+<tr><td>NoSQL database</td><td>MongoDB 8.2</td><td>Append-style history and audit documents of varying shape (events and rejections), keyed by event id so redelivery overwrites itself.</td></tr>
+<tr><td>Schema management</td><td>Flyway</td><td>Versioned, repeatable database schema.</td></tr>
+<tr><td>Scheduled-job lock</td><td>ShedLock on PostgreSQL</td><td>Only one processor instance runs the expiry job.</td></tr>
+<tr><td>UI</td><td>React, Vite, TypeScript, plain CSS</td><td>Quick to build and run; no UI framework needed.</td></tr>
+<tr><td>Tests</td><td>JUnit 5, AssertJ, Mockito, Testcontainers, Awaitility, JaCoCo; Vitest and Testing Library for the UI</td><td>Real Kafka, PostgreSQL and MongoDB in tests rather than mocks of them.</td></tr>
+<tr><td>Delivery</td><td>GitHub Actions; Trivy, <code>npm audit</code> and OWASP Dependency-Check</td><td>Named in the assignment; fails on critical findings.</td></tr>
+<tr><td>Packaging</td><td>Docker and Docker Compose</td><td>One command starts the whole system anywhere Docker runs.</td></tr>
+</table>
+<p>No separate application server is installed: each Spring Boot service embeds Tomcat.</p>
+</section>
+
+<section class="wide">
+<h1>5. Runtime flows</h1>
+<p>The main flow covers all three outcomes for a trade: accepted or replaced, rejected for a past maturity date, and rejected for a lower version.</p>
+<figure><img src="../diagrams/sequence-trade-flow.svg" alt="Trade flow"><figcaption>Figure 2. Trade flow from capture to dashboard</figcaption></figure>
+</section>
+
+<section>
+<h2>5.1 Reading the trade flow</h2>
+<ol>
+<li>The simulator (or any client) posts a trade, or a batch of up to 1,000, to the capture API.</li>
+<li>A maturity date earlier than today is answered with HTTP 422, and the rejection is published to <code>trades.rejected</code> so it is stored and visible. A malformed trade is answered with 400. Otherwise the trade is published to <code>trades.inbound</code> keyed by trade id and the caller receives 202 once Kafka has acknowledged it.</li>
+<li>The processor consumes the record. It checks maturity again, because other producers may write to the topic directly ("any method of transmission"), then applies the version rule inside one database transaction.</li>
+<li>If the store accepts the trade it publishes an <code>ACCEPTED</code> event (new row) or <code>REPLACED</code> event (same version). If the rule is broken, the store raises <code>LowerVersionTradeException</code> or <code>MaturityDatePassedException</code>, the transaction rolls back, and a rejection with the reason is published to <code>trades.rejected</code>.</li>
+<li>The Kafka offset is committed only after the database commit and the outcome publish have completed.</li>
+<li>The query service consumes both outcome topics, stores them in MongoDB keyed by event id, and pushes them to connected dashboards.</li>
+</ol>
+<p>A business rejection is a normal outcome and goes to <code>trades.rejected</code>. A technical failure (a message that cannot be read, or the database unavailable after retries) goes to <code>trades.inbound.DLT</code>. Keeping them apart lets operations tell bad trades from broken infrastructure.</p>
+<h2>5.2 Automatic expiry</h2>
+<figure><img src="../diagrams/sequence-expiry.svg" alt="Expiry flow" style="max-height:110mm"><figcaption>Figure 3. Expiry job</figcaption></figure>
+<p>The job runs shortly after midnight in the business zone and once at startup, so trades that matured while the service was down are caught. A database lock allows one run at a time across processor instances. It marks trades in batches of 500 and publishes one <code>EXPIRED</code> event per trade.</p>
+</section>
+
+<section>
+<h1>6. Design of the three rules</h1>
+<h2>Rule 1: version</h2>
+<table>
+<tr><th>Incoming version compared with the highest stored</th><th>Result</th></tr>
+<tr><td>Higher, or first for that trade id</td><td>A new row is added; earlier versions are kept.</td></tr>
+<tr><td>Equal</td><td>The existing row is replaced.</td></tr>
+<tr><td>Lower</td><td>Rejected with <code>LowerVersionTradeException</code>; nothing is changed.</td></tr>
+</table>
+<p>The check is made by the database, not in application memory, so it is correct with any number of processor instances. A small table holds the highest version per trade. One statement claims the version and affects no row when a higher version is already recorded:</p>
+<pre>INSERT INTO trade_latest (trade_id, latest_version) VALUES (?, ?)
+ON CONFLICT (trade_id) DO UPDATE SET latest_version = EXCLUDED.latest_version
+WHERE trade_latest.latest_version &lt;= EXCLUDED.latest_version;
+-- 0 rows affected: a higher version exists, so reject
+-- 1 row affected: upsert the trade row in the same transaction</pre>
+<p>The statement takes a row lock on that trade, so concurrent writers of the same trade queue up and each sees the other's result. Kafka's per-key ordering means this rarely matters in normal running; the guard keeps the rule correct if ordering is ever disturbed by a rebalance, a replay or a second producer.</p>
+<h2>Rule 2: maturity date</h2>
+<p>A trade is rejected when its maturity date is earlier than today; a trade maturing today is accepted. The rule lives in one shared class used by the capture API, the processor and the expiry job, so all three agree on the boundary. "Today" is read from an injected clock, which defaults to the server's own date and time zone and can be set by an administrator with <code>trade.business-zone</code> (environment variable <code>TRADE_BUSINESS_ZONE</code>). Tests fix the clock, including a case where the date differs between two zones.</p>
+<h2>Rule 3: expiry</h2>
+<p>The expiry job runs this against rows that are not yet expired, in batches, while skipping any rows currently locked by trade processing:</p>
+<pre>UPDATE trade SET expired = 'Y'
+WHERE (trade_id, version) IN (
+   SELECT trade_id, version FROM trade
+   WHERE expired = 'N' AND maturity_date &lt; :today
+   ORDER BY trade_id, version LIMIT :batch FOR UPDATE SKIP LOCKED)</pre>
+<p>A partial index on maturity date for unexpired rows keeps the search fast as the store grows.</p>
+<h2>Store sequence</h2>
+<p>"Stored in a specific sequence" is implemented as the order of the sample table: trade id ascending, then version descending. The primary key and the query API both use it.</p>
+</section>
+
+<section>
+<h1>7. Data design</h1>
+<figure><img src="../diagrams/data-model.svg" alt="Data model" style="max-height:120mm"><figcaption>Figure 4. Data model</figcaption></figure>
+<table>
+<tr><th style="width:22%">Store</th><th>Notes</th></tr>
+<tr><td>PostgreSQL <code>trade</code></td><td>Primary key (trade id, version). The expired flag is <code>Y</code> or <code>N</code>, as in the assignment. Dates are SQL dates.</td></tr>
+<tr><td>PostgreSQL <code>trade_latest</code></td><td>Highest version seen per trade id; the target of the atomic version guard.</td></tr>
+<tr><td>PostgreSQL <code>shedlock</code></td><td>Lock rows for the expiry job.</td></tr>
+<tr><td>MongoDB <code>trade_events</code></td><td>One document per store change (accepted, replaced, expired). The document id is the event id.</td></tr>
+<tr><td>MongoDB <code>trade_rejections</code></td><td>One document per rejection with reason, message, source (capture or processor) and the rejected trade.</td></tr>
+</table>
+<p>Event ids for processed trades are built from the inbound Kafka position (topic, partition, offset). Redelivering the same record therefore overwrites the same MongoDB document instead of creating a duplicate. The schema is created by a Flyway migration.</p>
+<h3>Why two databases</h3>
+<p>PostgreSQL holds what must be correct: the current state of the store, changed under transactions. MongoDB holds what is read, counted and audited: a history that is easy to append to and to show on a dashboard without touching the store's tables.</p>
+</section>
+
+<section>
+<h1>8. Deployment view</h1>
+<figure><img src="../diagrams/deployment.svg" alt="Deployment view" style="max-height:130mm"><figcaption>Figure 5. Deployment on Docker Compose</figcaption></figure>
+<p>One command, <code>docker compose -f deploy/docker-compose.yml up --build</code>, builds and starts all eight containers with health checks and start-up ordering. Only Docker is required. The services read their settings from environment variables, so the same images move between a laptop, the pipeline and a client site.</p>
+<table>
+<tr><th style="width:32%">Setting</th><th>Purpose</th></tr>
+<tr><td><code>TRADE_BUSINESS_ZONE</code></td><td>Time zone that defines "today"; empty means the server's own zone.</td></tr>
+<tr><td><code>SPRING_KAFKA_BOOTSTRAP_SERVERS</code></td><td>Kafka address.</td></tr>
+<tr><td><code>SPRING_DATASOURCE_URL</code></td><td>PostgreSQL address.</td></tr>
+<tr><td><code>SPRING_MONGODB_URI</code></td><td>MongoDB address.</td></tr>
+<tr><td><code>trade.inbound-partitions</code>, <code>trade.processor.concurrency</code></td><td>Topic partitions (6) and consumer threads per processor instance (3).</td></tr>
+<tr><td><code>trade.expiry.cron</code>, <code>trade.expiry.batch-size</code></td><td>Expiry schedule (00:01 in the business zone) and batch size (500).</td></tr>
+<tr><td><code>trade.retry.*</code></td><td>Retry interval (1 s) and attempts (3) before a record is parked.</td></tr>
+</table>
+<p>For production the same services run on any container platform. The Compose file's single Kafka broker and single database instances would be replaced by a three-broker cluster and a highly available PostgreSQL and MongoDB (section 9).</p>
+</section>
+
+<section class="pb">
+<h1>9. Non-functional requirements and how the solution meets them</h1>
+<p>The assignment names volume ("thousands of trades"), ordering, no loss and automatic behaviour. The table below turns those into explicit requirements and states how each is met. The last column is candid: <span class="ok">Met</span> means built and tested; <span class="gap">Partly</span> or <span class="gap">Not yet</span> marks work that remains.</p>
+<table>
+<tr><th style="width:12%">Requirement</th><th>How the solution addresses it</th><th style="width:20%">Status</th></tr>
+<tr><td>Throughput</td><td>Capture is stateless, runs on Java 21 virtual threads, offers a batch endpoint (up to 1,000 trades per call) and publishes through a batching, compressed producer (<code>linger.ms=5</code>, lz4). The inbound topic has 6 partitions with a consumer thread per partition (3 threads per instance by default). Each trade costs two short database statements in one transaction. The expiry job is batched and skips locked rows so it does not stall processing.</td><td><span class="gap">Design supports it; figures not yet measured</span> (phase 9)</td></tr>
+<tr><td>Scalability</td><td>Capture and query are stateless and scale by adding instances behind a load balancer. Processing scales by adding instances up to the partition count; more partitions raise that ceiling. Kafka absorbs bursts so producers and the processor run at different speeds. Consumer lag is the signal to scale.</td><td><span class="ok">Met by design</span></td></tr>
+<tr><td>Ordering</td><td>Records are keyed by trade id, so all versions of a trade share a partition and are handled in order by one thread.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Data consistency under concurrency</td><td>The version rule is a single atomic conditional statement with a row lock, so correctness does not depend on arrival order or on how many processors run. A test sends 40 shuffled versions of one trade from 8 threads and checks that the highest version always wins and the recorded highest equals the stored highest.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>No loss of accepted trades</td><td>The producer uses <code>acks=all</code> and idempotence. The capture API answers 202 only after Kafka acknowledges the record, and answers 503 if it cannot. The processor commits its offset only after the database commit and the outcome publish.</td><td><span class="ok">Met</span> (single broker in Compose, see Availability)</td></tr>
+<tr><td>Delivery guarantee and idempotency</td><td>Delivery is at-least-once. Reprocessing is harmless: the same version replaces itself, and MongoDB documents are keyed by Kafka position. After a crash between commit and publish, the trade is reprocessed and the event is published then, with type <code>REPLACED</code> rather than <code>ACCEPTED</code>.</td><td><span class="ok">Met</span>, with that documented wrinkle</td></tr>
+<tr><td>Fault handling</td><td>Technical failures are retried (3 times, 1 s apart), then the record is parked on <code>trades.inbound.DLT</code> so the partition keeps moving. Unreadable or incomplete records are parked at once. Business rejections never use the dead-letter topic.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Availability</td><td>Capture, processor and query are stateless and restart without losing data; Kafka buffers trades while the processor is down, and capture keeps accepting. Containers restart on failure and have health checks. The supplied Compose file runs a single broker and single databases, so it is not highly available.</td><td><span class="gap">Partly</span>: production needs 3 brokers (replication factor 3, min in-sync replicas 2) and replicated databases</td></tr>
+<tr><td>Durability</td><td>Trades are committed to PostgreSQL before the offset moves; inbound records stay in Kafka until retention removes them, allowing replay.</td><td><span class="ok">Met</span> (replication is a deployment choice)</td></tr>
+<tr><td>Auditability</td><td>Every store change and every rejection, with its reason and source, is kept in MongoDB and shown on the dashboard; Kafka topics allow replay.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Correctness of time</td><td>One injected clock supplies "today" to capture, processor, expiry and simulator; the zone is the server's, or the administrator's override. The shared maturity rule defines the boundary once. A test shows a Tokyo clock moves the date a day ahead of UTC.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Configurability</td><td>Time zone, partitions, concurrency, retry, expiry schedule, batch size and allowed browser origins are settings, not code.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Observability</td><td>Spring Actuator health, info and metrics on every service. The processor counts outcomes (<code>trades.processed</code> by outcome: accepted, replaced, lower version, maturity passed). Rejections are logged with the reason. The dashboard shows live counters and recent rejections.</td><td><span class="gap">Partly</span>: no distributed tracing or correlation id yet, and no metrics exporter configured</td></tr>
+<tr><td>Security</td><td>Inputs are validated (required fields, version of at least 1, batch size limit). Containers run as a non-root user. Browser access is limited to an allow-list of origins. Dependencies are scanned on every build and critical findings fail it.</td><td><span class="gap">Not yet</span>: no authentication, authorisation or TLS, and the Compose file uses default database credentials. These must be added before any non-demo use.</td></tr>
+<tr><td>Maintainability and testability</td><td>Small modules with one job each; the rules live in a shared module with no framework dependency; every rule was written test-first. 54 backend tests, 6 UI tests and a 17-check end-to-end script. Line coverage above 90 % in every module, with a build-failing gate at 80 %.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Portability and ease of setup</td><td>Docker is the only requirement to run the system; the same Kafka and database images are used in tests, the pipeline and the demo. The code imports into Eclipse as ordinary Maven projects.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Supply-chain safety</td><td>Trivy and <code>npm audit</code> run on every build; any critical finding (CVSS 9.0 or above) fails it. OWASP Dependency-Check runs too when an NVD API key is configured. The gate has already proved useful: it forced the move to Spring Boot 4.</td><td><span class="ok">Met</span> (OWASP run pending the key)</td></tr>
+<tr><td>Data growth</td><td>Kafka retention bounds the log. The partial index keeps expiry cheap. MongoDB history grows without a limit today.</td><td><span class="gap">Partly</span>: add a retention (time-to-live) policy for history</td></tr>
+<tr><td>Usability</td><td>The dashboard shows the store in the assignment's column order and date format, live counters, rejection reasons, and simulator controls, in a plain corporate style.</td><td><span class="ok">Met</span></td></tr>
+</table>
+</section>
+
+<section>
+<h1>10. Quality, testing and delivery pipeline</h1>
+<h2>Test-first approach</h2>
+<p>For each backend phase the tests were written and committed first (they failed), then the implementation was written until they passed; the commit history shows <code>test:</code> commits before the matching <code>feat:</code> commits. The dashboard is the exception: its tests and components were written together.</p>
+<table>
+<tr><th style="width:22%">Level</th><th>What it covers</th><th style="width:12%">Count</th></tr>
+<tr><td>Rule unit tests</td><td>Version and maturity boundaries, exceptions, business clock</td><td>8</td></tr>
+<tr><td>Store tests on real PostgreSQL</td><td>Lower, same and higher version, maturity boundary, atomic rollback, 8-thread concurrency</td><td>8</td></tr>
+<tr><td>Processor and expiry</td><td>One outcome per trade, zone-dependent date, expiry boundary, batches, re-run safety</td><td>9</td></tr>
+<tr><td>Kafka integration</td><td>Accept, replace, reject in arrival order; past maturity; unreadable and incomplete records parked while good ones continue; capture API publishing with the right key</td><td>4</td></tr>
+<tr><td>HTTP contracts</td><td>202, 422, 400, 503, batch; simulator run control</td><td>11</td></tr>
+<tr><td>Query side</td><td>Store ordering and paging, MongoDB projection and de-duplication, summary, live feed, CORS</td><td>11</td></tr>
+<tr><td>Simulator generator</td><td>Scenarios are true to the versions already sent; mix matches the request</td><td>3</td></tr>
+<tr><td>Dashboard</td><td>Table, date format, summary, rejections, filter, simulator start</td><td>6</td></tr>
+<tr><td>End-to-end regression</td><td>Whole system on Docker Compose, using dates relative to today</td><td>17 checks</td></tr>
+</table>
+<h2>Delivery pipeline</h2>
+<figure><img src="../diagrams/cicd.svg" alt="Pipeline" style="max-height:80mm"><figcaption>Figure 6. GitHub Actions pipeline</figcaption></figure>
+<p>On every push and pull request the backend and dashboard jobs build and test, the vulnerability job scans in parallel, and the end-to-end regression runs once the build jobs pass. The latest run on the main branch has all four jobs green.</p>
+<p>The same checks run without GitHub: <code>mvn verify</code>, <code>docker compose up --build -d</code> followed by <code>deploy/regression.sh</code>, and <code>mvn -Psecurity-scan verify</code> for OWASP Dependency-Check.</p>
+</section>
+
+<section>
+<h1>11. Risks, limitations and next steps</h1>
+<table>
+<tr><th style="width:30%">Item</th><th>Detail and proposed action</th></tr>
+<tr><td>Throughput not yet measured</td><td>Phase 9 will run the simulator at increasing rates and record trades per second, consumer lag and latency, then tune partitions, threads and batching. On hold at the sponsor's request.</td></tr>
+<tr><td>No authentication or TLS</td><td>Add OAuth2 or API-key access on the capture and query APIs, TLS on all links, and secrets from a vault instead of defaults.</td></tr>
+<tr><td>Single broker and databases in Compose</td><td>Production deployment needs a Kafka cluster (replication factor 3, min in-sync replicas 2) and replicated PostgreSQL and MongoDB.</td></tr>
+<tr><td>Commit-then-publish window in the processor</td><td>A crash between the database commit and the outcome publish makes the trade reprocessed, so its event is published as <code>REPLACED</code>. A transactional outbox would remove the wrinkle if exact event types matter.</td></tr>
+<tr><td>Fixed partition count</td><td>Six partitions cap processor parallelism at six threads per consumer group; increasing the count later is possible but needs care for keyed ordering.</td></tr>
+<tr><td>Live feed with several query instances</td><td>An event reaches only the browsers connected to the instance that consumed it. The dashboard also polls every three seconds, so it stays correct.</td></tr>
+<tr><td>Observability gaps</td><td>Add correlation ids from HTTP header through Kafka header to logs, and a Prometheus exporter with dashboards and alerts on consumer lag and dead-letter volume.</td></tr>
+<tr><td>History retention</td><td>Add a time-to-live on MongoDB history.</td></tr>
+<tr><td>OWASP Dependency-Check</td><td>Not yet run: it needs an NVD API key as a repository secret. Trivy covers the gate meanwhile.</td></tr>
+<tr><td>Class diagrams</td><td>Planned with phase 9.</td></tr>
+</table>
+</section>
+
+<section>
+<h1>12. Traceability from requirements to design and tests</h1>
+<table>
+<tr><th style="width:24%">Requirement</th><th>Design element</th><th style="width:30%">Verified by</th></tr>
+<tr><td>Spring Boot application</td><td>Five Spring Boot modules</td><td>Build and all tests</td></tr>
+<tr><td>Streaming tool</td><td>Kafka topics between capture, processor and query</td><td>Kafka integration tests; regression script</td></tr>
+<tr><td>SQL and NoSQL databases</td><td>PostgreSQL trade store; MongoDB history</td><td>Store, projection and query tests</td></tr>
+<tr><td>Rule 1: lower version rejected, same replaces</td><td>Atomic guard in the trade store; exceptions</td><td>Store tests, concurrency test, Kafka integration, regression</td></tr>
+<tr><td>Rule 2: past maturity rejected</td><td>Shared maturity rule in capture and processor</td><td>Rule tests, HTTP 422 test, Kafka integration, regression</td></tr>
+<tr><td>Rule 3: matured trades expired</td><td>Scheduled expiry job with lock</td><td>Expiry tests</td></tr>
+<tr><td>Thousands of trades, any transmission</td><td>Partitioned Kafka, batch API, stateless capture, validation in the processor</td><td>Simulator 500-trade regression; load figures pending</td></tr>
+<tr><td>Stored in a specific sequence</td><td>Trade id ascending, version descending</td><td>Query repository test, dashboard test</td></tr>
+<tr><td>JUnit, test-first</td><td>Tests committed before implementation</td><td>Commit history; 54 backend tests</td></tr>
+<tr><td>Pipeline with regression and vulnerability scan; fail on critical</td><td>GitHub Actions workflow</td><td>Pipeline runs; the scan failed the build on real findings before the Boot 4 move</td></tr>
+<tr><td>PlantUML diagrams</td><td>Component, sequence, data model, deployment and pipeline diagrams</td><td>Sources and rendered SVGs in <code>docs/diagrams</code></td></tr>
+</table>
+
+<h2>Appendix: interfaces and configuration</h2>
+<table>
+<tr><th style="width:24%">Service (port)</th><th>Interface</th></tr>
+<tr><td>Capture (8081)</td><td><code>POST /api/v1/trades</code> returns 202, 422, 400 or 503. <code>POST /api/v1/trades/batch</code> accepts up to 1,000 trades and returns a result per trade.</td></tr>
+<tr><td>Processor (8082)</td><td>Kafka consumer of <code>trades.inbound</code>; Actuator health, info, metrics.</td></tr>
+<tr><td>Query (8083)</td><td><code>GET /api/v1/trades</code> (paged, filter by trade id prefix), <code>/events</code>, <code>/rejections</code>, <code>/summary</code>, and <code>/stream</code> (Server-Sent Events).</td></tr>
+<tr><td>Simulator (8084)</td><td><code>POST /api/v1/simulations</code> starts a run; <code>GET</code> and <code>DELETE /api/v1/simulations/current</code> report and stop it.</td></tr>
+<tr><td>Dashboard (8080)</td><td>Web page served by nginx.</td></tr>
+</table>
+<p>Repository layout: <code>trade-common</code> (model, rules, schema), <code>trade-capture-service</code>, <code>trade-processor-service</code>, <code>trade-query-service</code>, <code>trade-simulator</code>, <code>trade-dashboard-ui</code>, <code>deploy</code> (Compose, Dockerfile, regression script) and <code>docs</code>.</p>
+</section>
+
+</body>
+</html>
