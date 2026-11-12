@@ -1,0 +1,35 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: trade-query-service
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tradestore
+    username: trade
+    password: trade
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/tradestore
+      auto-index-creation: true
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: trade-query
+      auto-offset-reset: earliest
+
+trade:
+  # Time zone that defines "today". Empty = the server's own zone. Example: Europe/London
+  business-zone: ""
+  cors:
+    # Origins the dashboard is served from (Vite dev server, Docker Compose).
+    allowed-origins: http://localhost:5173,http://localhost:8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

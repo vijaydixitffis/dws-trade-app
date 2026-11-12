@@ -27,7 +27,7 @@ A client who only wants to run the system needs Docker alone: `docker compose up
 | Framework | Spring Boot 3.5.x (exact patch pinned when scaffolding) | Web, Kafka, JDBC, Data MongoDB, Actuator, Validation |
 | Streaming | Apache Kafka, KRaft mode, `apache/kafka` image | Single container locally |
 | SQL database | PostgreSQL 17 | Trade store |
-| NoSQL database | MongoDB 8 | Events and rejections |
+| NoSQL database | MongoDB 8.2 | Events and rejections |
 | Schema migration | Flyway | PostgreSQL |
 | Scheduler lock | ShedLock | One expiry run across instances |
 | UI | React 19, Vite, TypeScript | Served by nginx in its container. Plain CSS, corporate blue / grey / white palette, no UI framework |

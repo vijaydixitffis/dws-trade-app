@@ -9,7 +9,7 @@ import org.testcontainers.kafka.KafkaContainer;
 public final class Containers {
 
     public static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
-    public static final MongoDBContainer MONGO = new MongoDBContainer("mongo:8");
+    public static final MongoDBContainer MONGO = new MongoDBContainer("mongo:8.2");
     public static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:3.9.1");
 
     private Containers() {

@@ -108,8 +108,12 @@ class QueryIntegrationTest {
         String id = "LIVE-" + System.nanoTime();
         kafka.send(Topics.EVENTS, id, event("ev-" + id, id));
 
-        await().atMost(Duration.ofSeconds(60)).until(() -> lines.stream().anyMatch(l -> l.contains(id)));
-        assertThat(lines).anyMatch(l -> l.equals("event:trade-event"));
+        try {
+            await().atMost(Duration.ofSeconds(60)).until(() -> lines.stream().anyMatch(l -> l.contains(id)));
+            assertThat(lines).anyMatch(l -> l.equals("event:trade-event"));
+        } finally {
+            client.shutdownNow();
+        }
     }
 
     @Test
