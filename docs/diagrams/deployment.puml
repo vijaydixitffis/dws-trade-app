@@ -9,7 +9,7 @@ actor "Browser" as browser
 
 node "Docker host (one command: docker compose up)" as host {
   node "Web" as web {
-    artifact "trade-dashboard-ui\nnginx :8080\n(login, API proxy)" as ui
+    artifact "trade-dashboard-ui\nnginx unprivileged :8080\n(login, CSP, rate limit,\nAPI proxy)" as ui
   }
   node "Application services (Spring Boot 4, Java 21)" as apps {
     artifact "trade-capture-service\n:8081" as capture
@@ -19,7 +19,7 @@ node "Docker host (one command: docker compose up)" as host {
   }
   node "Infrastructure" as infra {
     queue "Apache Kafka 3.9\nKRaft, single broker :9092" as kafka
-    database "PostgreSQL 17\n:5432" as pg
+    database "PostgreSQL 17 :5432\nprocessor: owner account\nquery: read-only account" as pg
     database "MongoDB 8.2\n:27017" as mongo
   }
 }

@@ -9,14 +9,35 @@
 
 ## Changes since this review
 
-The findings below describe commit `e39d3d8`. Later work changed the status of these:
+The findings below describe commit `e39d3d8`. Later work changed their status. Evidence for each fix is a test written before the code, listed in `ACTIVITY_LOG.md`.
 
 | Finding | Status | What changed |
 |---|---|---|
-| SEC-1 | Partly addressed | Every service and the dashboard now require HTTP Basic authentication (one demo administrator account). There are still no roles and no TLS. The recommended design is in section 12 of the HLD |
-| SEC-2 | Partly addressed | The simulator now requires the login and no longer accepts cross-origin calls. It is still deployed with the rest of the demo |
-| SEC-6 | Partly addressed | The dashboard's nginx now sends `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`. It still runs as root and has no content security policy |
-| ARCH-6 | Fixed | The dashboard calls same-origin paths that nginx forwards to the services; CORS configuration was removed |
+| REL-1 | Fixed | Ids are limited to 64 characters from a safe set; capture answers 400; the processor records an invalid trade as `INVALID_TRADE` instead of dropping it |
+| REL-2 | Fixed | Exponential back-off retries for up to ten minutes; only unreadable records and constraint violations are parked at once. Tested by pausing PostgreSQL |
+| REL-3 | Fixed | Transactional outbox: expiry events are written in the same transaction as the update |
+| REL-4 | Fixed | The query service retries with the same back-off and has dead-letter topics. Tested by pausing MongoDB |
+| REL-5, REL-11 | Fixed | The event is saved with the change; replaced-versus-new is read from an explicit existence check; the history keeps the first delivery |
+| REL-7 | Fixed | The start-up expiry run is in the background, takes the lock and cannot break start-up |
+| REL-9 | Fixed | MongoDB stores dates as ISO strings |
+| PERF-2 | Fixed | Summary counted once per two seconds for all browsers; rejections fetched only on their tab |
+| PERF-3 | Fixed | Sequence index, keyset paging, capped counts; a test checks the query plan of every page kind |
+| PERF-4 | Fixed | Per-browser queues; only a stalled subscriber is dropped; heartbeat; subscriber limit |
+| PERF-5 | Fixed | Expiry events go through the batched outbox relay |
+| BUG-1 | Fixed | The simulator paces from elapsed time: exact from 1 to 50,000 trades a second, batches of at most 1,000 |
+| BUG-2 | Fixed | The run dialog stays open on a refusal, shows the server's reason, and validates like the server |
+| BUG-3 | Fixed | Typing pause, request cancellation and stale-answer protection |
+| TEST-1 | Fixed | Outage tests for PostgreSQL and MongoDB, dead letters, and the expiry lock with two callers |
+| SEC-1 | Partly addressed | Basic authentication everywhere, scope-based authorisation and deny-by-default. Still one shared account by default, no TLS, no tokens |
+| SEC-2 | Partly addressed | The simulator needs its own scope and refuses runs above a configurable cap; it is still deployed with the demo |
+| SEC-3 | Partly addressed | The query service uses a read-only database account and the passwords are settings; defaults remain for the demo |
+| SEC-4 | Partly addressed | Request size and rate limits (per instance), and a limit at the dashboard host; a shared limit needs a gateway |
+| SEC-5 | Mostly addressed | Actions pinned to commits, images to digests, Dependabot, image scan, software bill of materials. Test container images remain unpinned |
+| SEC-6 | Fixed | Unprivileged dashboard host with a content security policy and other headers |
+| SEC-7 | Addressed | CodeQL workflow added |
+| ARCH-6 | Fixed | The dashboard calls same-origin paths; CORS configuration removed |
+
+Not yet addressed: PERF-1 (batching in the processor), PERF-6, PERF-7, REL-6, REL-8, REL-10, REL-12, BUG-4, BUG-5, ARCH-1 to ARCH-5, OPS-1 to OPS-5, UI-1 to UI-3, TEST-2 to TEST-4.
 
 ## 1. Verdict
 

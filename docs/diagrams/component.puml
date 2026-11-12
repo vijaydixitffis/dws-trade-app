@@ -25,7 +25,7 @@ rectangle "Apache Kafka" as kafka {
 }
 
 rectangle "Processing and read side" as services {
-  component "trade-processor-service\n(rules, expiry job)" as processor
+  component "trade-processor-service\n(rules, outbox relay,\nexpiry job)" as processor
   component "trade-query-service\n(REST + SSE)" as query
   processor -[hidden]right-> query
 }

@@ -48,8 +48,8 @@
   <div class="sub">High-Level Design and Architecture</div>
   <table>
     <tr><td>Submitted by</td><td>Vijaykumar Dixit</td></tr>
-    <tr><td>Version</td><td>1.0, 12 November 2026</td></tr>
-    <tr><td>Status</td><td>Implemented through phase 8; phase 9 (load run and tuning) on hold</td></tr>
+    <tr><td>Version</td><td>1.1, 13 November 2026</td></tr>
+    <tr><td>Status</td><td>Implemented through phase 8, with code-review steps 1 to 4 and demo security hardening done; phase 9 (load run and tuning) on hold</td></tr>
     <tr><td>Source</td><td>github.com/vijaydixitffis/dws-trade-app</td></tr>
     <tr><td>Stack</td><td>Java 21, Spring Boot 4.1, Apache Kafka, PostgreSQL, MongoDB, React</td></tr>
   </table>
@@ -106,7 +106,7 @@
 <li>A test-first build, a delivery pipeline with a vulnerability gate, and PlantUML diagrams.</li>
 </ul>
 <h3>Out of scope for this release</h3>
-<p>Production-grade authentication and authorisation (simple Basic auth is used for demo purpose; section 12 gives the recommended design), TLS, multi-broker Kafka and database replication in the supplied Compose file, Kubernetes manifests, and measured load-test figures (phase 9).</p>
+<p>Production-grade authentication (simple Basic auth with scope-based authorisation is used for demo purpose; section 12 gives the recommended design), an API gateway (not used in the demo scope), TLS, multi-broker Kafka and database replication in the supplied Compose file, Kubernetes manifests, and measured load-test figures (phase 9).</p>
 <h3>Decisions agreed with the sponsor</h3>
 <table>
 <tr><th style="width:26%">Topic</th><th>Decision</th></tr>
@@ -120,6 +120,8 @@
 <tr><td>Created Date on replace</td><td>Set to the date the replacing trade was received (default, not objected to).</td></tr>
 <tr><td>Sample dates in the assignment</td><td>The 2020 sample rows are ignored; all tests use dates relative to today.</td></tr>
 <tr><td>UI style</td><td>Plain corporate palette of blue, grey and white.</td></tr>
+<tr><td>API gateway</td><td>None in the demo scope. The dashboard host (nginx) serves the page and forwards the page's own calls; the services protect themselves. See the known issues in section 11.</td></tr>
+<tr><td>Security for the demo</td><td>HTTP Basic with the account <code>admin</code> and a demo password, plus scope-based authorisation, request limits and hardened containers (section 9). Not the production design (section 12).</td></tr>
 </table>
 </section>
 
@@ -130,15 +132,16 @@
 <table>
 <tr><th style="width:23%">Component</th><th>Responsibility</th><th style="width:16%">State</th></tr>
 <tr><td>trade-simulator</td><td>Generates trades at a chosen rate and mix (new, higher, same and lower version, past maturity) and posts them to the capture API. A run can also fix the counter-party and book pools, the maturity window and the trade id prefix. Started and stopped through a REST API or the dashboard, which offers a quick run dialog and a detailed run dialog.</td><td>None</td></tr>
-<tr><td>trade-capture-service</td><td>Receives single and batch trades, validates structure, applies the maturity rule (HTTP 422 on failure, with the rejection recorded), and publishes accepted trades to <code>trades.inbound</code>. Answers 202 only after Kafka acknowledges the record.</td><td>None</td></tr>
+<tr><td>trade-capture-service</td><td>Receives single and batch trades and validates structure (required fields, ids of at most 64 characters from a safe character set, version of at least 1; HTTP 400 otherwise). Applies the maturity rule (HTTP 422, with the rejection recorded) and publishes accepted trades to <code>trades.inbound</code>. Answers 202 only after Kafka acknowledges the record, 503 if it cannot.</td><td>None</td></tr>
 <tr><td>Kafka</td><td>Topics <code>trades.inbound</code>, <code>trades.events</code>, <code>trades.rejected</code> and <code>trades.inbound.DLT</code>.</td><td>Log</td></tr>
-<tr><td>trade-processor-service</td><td>Consumes the inbound topic, enforces the version and maturity rules in one database transaction, publishes the outcome, retries technical failures and parks unreadable records. Runs the expiry job.</td><td>PostgreSQL</td></tr>
+<tr><td>trade-processor-service</td><td>Consumes the inbound topic and enforces the version and maturity rules. The change to the store and the event describing it are saved in one database transaction (transactional outbox); an outbox relay publishes the events. Rejects invalid trades with a reason, rides out dependency outages with back-off retries and parks unreadable records. Runs the expiry job.</td><td>PostgreSQL</td></tr>
 <tr><td>PostgreSQL</td><td>The trade store.</td><td>-</td></tr>
-<tr><td>trade-query-service</td><td>Projects outcome topics into MongoDB, serves the trade list from PostgreSQL and the history from MongoDB, and pushes live updates to the dashboard over Server-Sent Events.</td><td>MongoDB</td></tr>
+<tr><td>trade-query-service</td><td>Projects outcome topics into MongoDB (the first delivery of an event wins), serves the trade list from PostgreSQL with index-backed keyset paging through a read-only database account, serves a cached summary, and pushes live updates to the dashboard over Server-Sent Events with an isolated queue per browser.</td><td>MongoDB</td></tr>
 <tr><td>MongoDB</td><td>History of every store change and every rejection.</td><td>-</td></tr>
-<tr><td>trade-dashboard-ui</td><td>Summary counters, the trade store in sequence, rejected trades with reasons, and simulator controls: a quick run dialog (bulk mix) and a detailed run dialog (mix sliders and trade variety). Served by nginx, which asks for the login before the page loads and forwards the dashboard's API calls to the query service and the simulator.</td><td>None</td></tr>
+<tr><td>trade-dashboard-ui</td><td>Summary counters, the trade store in sequence, rejected trades with reasons, and simulator controls: a quick run dialog (bulk mix) and a detailed run dialog (mix sliders and trade variety). Served by an unprivileged nginx, which asks for the login before the page loads, sends a content security policy, limits request rates, and forwards the dashboard's API calls to the query service and the simulator. It is a host, not an API gateway.</td><td>None</td></tr>
 </table>
 <div class="note"><b>Why a separate query service.</b> The processor's only job is to keep up with the inbound stream. Dashboard reads and browser connections run elsewhere, so they cannot slow it down.</div>
+<div class="note"><b>Why the outbox.</b> Writing to PostgreSQL and publishing to Kafka cannot be made atomic together. Saving the event in the same transaction as the change, and publishing it afterwards, means a crash can neither lose an event nor announce a change that was rolled back.</div>
 <div class="note"><b>Why the capture API does not write to the database.</b> It stays stateless and fast, Kafka absorbs bursts, and the processor can be stopped or redeployed without losing accepted trades.</div>
 </section>
 
@@ -152,35 +155,38 @@
 <tr><td>NoSQL database</td><td>MongoDB 8.2</td><td>Append-style history and audit documents of varying shape (events and rejections), keyed by event id so redelivery overwrites itself.</td></tr>
 <tr><td>Schema management</td><td>Flyway</td><td>Versioned, repeatable database schema.</td></tr>
 <tr><td>Scheduled-job lock</td><td>ShedLock on PostgreSQL</td><td>Only one processor instance runs the expiry job.</td></tr>
+<tr><td>Event publishing</td><td>Transactional outbox table, relay with a PostgreSQL advisory lock</td><td>Events are never lost or falsely announced, and are published in order by one relay at a time.</td></tr>
 <tr><td>UI</td><td>React, Vite, TypeScript, plain CSS</td><td>Quick to build and run; no UI framework needed.</td></tr>
 <tr><td>Tests</td><td>JUnit 5, AssertJ, Mockito, Testcontainers, Awaitility, JaCoCo; Vitest and Testing Library for the UI</td><td>Real Kafka, PostgreSQL and MongoDB in tests rather than mocks of them.</td></tr>
 <tr><td>Delivery</td><td>GitHub Actions; Trivy, <code>npm audit</code> and OWASP Dependency-Check</td><td>Named in the assignment; fails on critical findings.</td></tr>
-<tr><td>Access control (demo)</td><td>Spring Security HTTP Basic in every service; nginx <code>auth_basic</code> for the dashboard</td><td>Smallest working protection for a demonstration; one shared module. Not the production design (section 12).</td></tr>
-<tr><td>Packaging</td><td>Docker and Docker Compose</td><td>One command starts the whole system anywhere Docker runs.</td></tr>
+<tr><td>Access control (demo)</td><td>Spring Security HTTP Basic with scope checks in every service; nginx <code>auth_basic</code> for the dashboard</td><td>Smallest working protection for a demonstration, in one shared module. The scope checks stay when tokens replace Basic (section 12).</td></tr>
+<tr><td>Packaging</td><td>Docker and Docker Compose; base images pinned by digest</td><td>One command starts the whole system anywhere Docker runs, with reproducible images.</td></tr>
 </table>
 <p>No separate application server is installed: each Spring Boot service embeds Tomcat.</p>
 </section>
 
-<section class="wide">
+<section class="pb">
 <h1>5. Runtime flows</h1>
-<p>The main flow covers all three outcomes for a trade: accepted or replaced, rejected for a past maturity date, and rejected for a lower version.</p>
-<figure><img src="../diagrams/sequence-trade-flow.svg" alt="Trade flow"><figcaption>Figure 2. Trade flow from capture to dashboard</figcaption></figure>
-</section>
-
-<section>
-<h2>5.1 Reading the trade flow</h2>
+<p>Three flows matter: a trade being captured and processed, the resulting events being delivered to the history and the dashboard, and the daily expiry.</p>
+<figure><img src="../diagrams/sequence-trade-flow.svg" alt="Capture and processing" style="max-height:200mm"><figcaption>Figure 2. Capture and processing</figcaption></figure>
+<h2>5.1 Capture and processing</h2>
 <ol>
-<li>The simulator (or any client) posts a trade, or a batch of up to 1,000, to the capture API.</li>
-<li>A maturity date earlier than today is answered with HTTP 422, and the rejection is published to <code>trades.rejected</code> so it is stored and visible. A malformed trade is answered with 400. Otherwise the trade is published to <code>trades.inbound</code> keyed by trade id and the caller receives 202 once Kafka has acknowledged it.</li>
-<li>The processor consumes the record. It checks maturity again, because other producers may write to the topic directly ("any method of transmission"), then applies the version rule inside one database transaction.</li>
-<li>If the store accepts the trade it publishes an <code>ACCEPTED</code> event (new row) or <code>REPLACED</code> event (same version). If the rule is broken, the store raises <code>LowerVersionTradeException</code> or <code>MaturityDatePassedException</code>, the transaction rolls back, and a rejection with the reason is published to <code>trades.rejected</code>.</li>
-<li>The Kafka offset is committed only after the database commit and the outcome publish have completed.</li>
-<li>The query service consumes both outcome topics, stores them in MongoDB keyed by event id, and pushes them to connected dashboards.</li>
+<li>A client posts a trade, or a batch of up to 1,000, with its credentials. The caller needs the <code>trades:write</code> scope.</li>
+<li>The capture API validates the structure: required fields, ids of at most 64 characters from <code>A-Z a-z 0-9 . _ -</code>, version of at least 1 (HTTP 400 otherwise). A maturity date earlier than today is answered with HTTP 422 and the rejection is published to <code>trades.rejected</code>, so it is stored and visible. Otherwise the trade is published to <code>trades.inbound</code> keyed by trade id, and the caller receives 202 once Kafka has acknowledged it (503 if the stream is unavailable).</li>
+<li>The processor consumes the record. Unreadable JSON goes to the dead-letter topic at once. A readable trade that fails validation (other producers may write to the topic directly, "any method of transmission") is rejected with the reason <code>INVALID_TRADE</code> and recorded; it is not dead-lettered.</li>
+<li>A valid trade is handled in one database transaction: claim the version, upsert the trade row, write the outcome event to the outbox table, commit. If the rule is broken, the store raises <code>LowerVersionTradeException</code> or <code>MaturityDatePassedException</code>, the transaction rolls back, and a rejection with the reason is published to <code>trades.rejected</code>.</li>
+<li>The Kafka offset is committed only after the transaction (and any rejection publish) has completed.</li>
+<li>Failures are classified. A record that can never succeed (unreadable, or violating a database constraint) is parked at once. Any other failure, such as the database or broker being unavailable, is retried with exponential back-off (0.5 s doubling to 30 s) for up to ten minutes, holding the partition so order is kept, and only then parked. A short outage delays trades; it does not dead-letter them.</li>
 </ol>
-<p>A business rejection is a normal outcome and goes to <code>trades.rejected</code>. A technical failure (a message that cannot be read, or the database unavailable after retries) goes to <code>trades.inbound.DLT</code>. Keeping them apart lets operations tell bad trades from broken infrastructure.</p>
-<h2>5.2 Automatic expiry</h2>
-<figure><img src="../diagrams/sequence-expiry.svg" alt="Expiry flow" style="max-height:110mm"><figcaption>Figure 3. Expiry job</figcaption></figure>
-<p>The job runs shortly after midnight in the business zone and once at startup, so trades that matured while the service was down are caught. A database lock allows one run at a time across processor instances. It marks trades in batches of 500 and publishes one <code>EXPIRED</code> event per trade.</p>
+<p>A business rejection is a normal outcome and goes to <code>trades.rejected</code>. A technical failure goes to <code>trades.inbound.DLT</code>. Keeping them apart lets operations tell bad trades from broken infrastructure.</p>
+<figure><img src="../diagrams/sequence-event-delivery.svg" alt="Event delivery" style="max-height:130mm"><figcaption>Figure 3. Event delivery to the history and the dashboard</figcaption></figure>
+<h2>5.2 Event delivery</h2>
+<p>The outbox relay runs every 200 ms (and again at once while batches come back full). In one transaction it takes a PostgreSQL advisory lock, so only one relay runs at a time across processor instances and events keep the order they were written in, reads the oldest rows, publishes them to <code>trades.events</code>, waits for Kafka to acknowledge all of them, and deletes them. If Kafka fails, nothing is deleted and the rows go out on the next run.</p>
+<p>The query service consumes both outcome topics and inserts each event into MongoDB only if its id is not already there, so the first delivery wins and a redelivery changes nothing. It then hands a signal to each connected browser through that browser's own bounded queue; a slow or stuck browser cannot hold up the projection or other browsers. The dashboard refetches the summary and the trade page over REST.</p>
+<p>Because the event and the change are saved together, a crash cannot lose the event or announce a change that was rolled back. A record reprocessed after a crash writes the same event id, which is ignored while the row waits and ignored by the history afterwards, so a new trade stays recorded as <code>ACCEPTED</code> rather than turning into <code>REPLACED</code>.</p>
+<h2>5.3 Automatic expiry</h2>
+<figure><img src="../diagrams/sequence-expiry.svg" alt="Expiry flow" style="max-height:105mm"><figcaption>Figure 4. Expiry job</figcaption></figure>
+<p>The job runs shortly after midnight in the business zone, and once at start-up in the background so a large backlog never delays start-up and a failure only logs. Both runs take the database lock, so one runs at a time across processor instances. Each batch of 500 marks its rows and writes their <code>EXPIRED</code> events to the outbox in one transaction, so a trade is never marked expired without its event being on the way.</p>
 </section>
 
 <section>
@@ -202,7 +208,7 @@ WHERE trade_latest.latest_version &lt;= EXCLUDED.latest_version;
 <h2>Rule 2: maturity date</h2>
 <p>A trade is rejected when its maturity date is earlier than today; a trade maturing today is accepted. The rule lives in one shared class used by the capture API, the processor and the expiry job, so all three agree on the boundary. "Today" is read from an injected clock, which defaults to the server's own date and time zone and can be set by an administrator with <code>trade.business-zone</code> (environment variable <code>TRADE_BUSINESS_ZONE</code>). Tests fix the clock, including a case where the date differs between two zones.</p>
 <h2>Rule 3: expiry</h2>
-<p>The expiry job runs this against rows that are not yet expired, in batches, while skipping any rows currently locked by trade processing:</p>
+<p>The expiry job runs this against rows that are not yet expired, in batches, while skipping any rows currently locked by trade processing. Each batch also writes its events to the outbox in the same transaction:</p>
 <pre>UPDATE trade SET expired = 'Y'
 WHERE (trade_id, version) IN (
    SELECT trade_id, version FROM trade
@@ -210,7 +216,9 @@ WHERE (trade_id, version) IN (
    ORDER BY trade_id, version LIMIT :batch FOR UPDATE SKIP LOCKED)</pre>
 <p>A partial index on maturity date for unexpired rows keeps the search fast as the store grows.</p>
 <h2>Store sequence</h2>
-<p>"Stored in a specific sequence" is implemented as the order of the sample table: trade id ascending, then version descending. The primary key and the query API both use it.</p>
+<p>"Stored in a specific sequence" is implemented as the order of the sample table: trade id ascending, then version descending. A dedicated index (byte-order collation) serves that order, the trade-id prefix filter and keyset paging, so a deep page costs the same as the first and a test checks the plans for every kind of page.</p>
+<h2>Inputs the store can hold</h2>
+<p>Trade id, counter-party id and book id are at most 64 characters, matching the database columns, and the trade id uses only letters, digits, dot, underscore and hyphen. A trade that breaks these limits is refused with HTTP 400 by the capture API, or recorded as <code>INVALID_TRADE</code> by the processor if it arrives by another route, instead of failing later in the database.</p>
 </section>
 
 <section>
@@ -220,11 +228,12 @@ WHERE (trade_id, version) IN (
 <tr><th style="width:22%">Store</th><th>Notes</th></tr>
 <tr><td>PostgreSQL <code>trade</code></td><td>Primary key (trade id, version). The expired flag is <code>Y</code> or <code>N</code>, as in the assignment. Dates are SQL dates.</td></tr>
 <tr><td>PostgreSQL <code>trade_latest</code></td><td>Highest version seen per trade id; the target of the atomic version guard.</td></tr>
+<tr><td>PostgreSQL <code>outbox</code></td><td>Events waiting to be published. Written in the same transaction as the change; the relay publishes and deletes them. The unique event id ignores a repeat while the row waits.</td></tr>
 <tr><td>PostgreSQL <code>shedlock</code></td><td>Lock rows for the expiry job.</td></tr>
-<tr><td>MongoDB <code>trade_events</code></td><td>One document per store change (accepted, replaced, expired). The document id is the event id.</td></tr>
-<tr><td>MongoDB <code>trade_rejections</code></td><td>One document per rejection with reason, message, source (capture or processor) and the rejected trade.</td></tr>
+<tr><td>MongoDB <code>trade_events</code></td><td>One document per store change (accepted, replaced, expired). The document id is the event id; the first delivery is kept. Dates are stored as ISO strings, so they do not depend on a server time zone.</td></tr>
+<tr><td>MongoDB <code>trade_rejections</code></td><td>One document per rejection with reason (lower version, maturity passed, invalid trade), message, source (capture or processor) and the rejected trade.</td></tr>
 </table>
-<p>Event ids for processed trades are built from the inbound Kafka position (topic, partition, offset). Redelivering the same record therefore overwrites the same MongoDB document instead of creating a duplicate. The schema is created by a Flyway migration.</p>
+<p>Event ids for processed trades are built from the inbound Kafka position (topic, partition, offset), and expiry events from the trade id and version. Redelivering a record therefore cannot create a duplicate: the outbox and the history both ignore an id they already hold. The PostgreSQL schema is created by Flyway migrations: V1 the trade tables, V2 the outbox, V3 the sequence index.</p>
 <h3>Why two databases</h3>
 <p>PostgreSQL holds what must be correct: the current state of the store, changed under transactions. MongoDB holds what is read, counted and audited: a history that is easy to append to and to show on a dashboard without touching the store's tables.</p>
 </section>
@@ -232,7 +241,7 @@ WHERE (trade_id, version) IN (
 <section>
 <h1>8. Deployment view</h1>
 <figure><img src="../diagrams/deployment.svg" alt="Deployment view" style="max-height:130mm"><figcaption>Figure 5. Deployment on Docker Compose</figcaption></figure>
-<p>One command, <code>docker compose -f deploy/docker-compose.yml up --build</code>, builds and starts all eight containers with health checks and start-up ordering. Only Docker is required. The services read their settings from environment variables, so the same images move between a laptop, the pipeline and a client site.</p>
+<p>One command, <code>docker compose -f deploy/docker-compose.yml up --build</code>, builds and starts all eight containers with health checks and start-up ordering. The base images are pinned by digest. The dashboard host runs as a non-root user on port 8080, and the query service connects to PostgreSQL through a read-only account created by an initialisation script. Only Docker is required. The services read their settings from environment variables, so the same images move between a laptop, the pipeline and a client site.</p>
 <table>
 <tr><th style="width:32%">Setting</th><th>Purpose</th></tr>
 <tr><td><code>TRADE_BUSINESS_ZONE</code></td><td>Time zone that defines "today"; empty means the server's own zone.</td></tr>
@@ -240,9 +249,13 @@ WHERE (trade_id, version) IN (
 <tr><td><code>SPRING_KAFKA_BOOTSTRAP_SERVERS</code></td><td>Kafka address.</td></tr>
 <tr><td><code>SPRING_DATASOURCE_URL</code></td><td>PostgreSQL address.</td></tr>
 <tr><td><code>SPRING_MONGODB_URI</code></td><td>MongoDB address.</td></tr>
+<tr><td><code>TRADE_RO_PASSWORD</code>, <code>POSTGRES_PASSWORD</code></td><td>Passwords of the read-only database account (query service) and the owner account (processor). Defaults are for the demo only.</td></tr>
+<tr><td><code>trade.security.accounts</code>, <code>rate-limit-per-second</code>, <code>max-request-bytes</code></td><td>Extra accounts with limited scopes (none by default), requests per caller per second (600), and the largest request body (2 MB).</td></tr>
+<tr><td><code>simulator.max-count</code></td><td>The largest simulator run this installation accepts (1,000,000).</td></tr>
 <tr><td><code>trade.inbound-partitions</code>, <code>trade.processor.concurrency</code></td><td>Topic partitions (6) and consumer threads per processor instance (3).</td></tr>
+<tr><td><code>trade.outbox.*</code></td><td>How often the relay looks for waiting events (200 ms) and how many it sends at once (500).</td></tr>
 <tr><td><code>trade.expiry.cron</code>, <code>trade.expiry.batch-size</code></td><td>Expiry schedule (00:01 in the business zone) and batch size (500).</td></tr>
-<tr><td><code>trade.retry.*</code></td><td>Retry interval (1 s) and attempts (3) before a record is parked.</td></tr>
+<tr><td><code>trade.retry.*</code></td><td>Back-off for retried failures: first retry after 0.5 s, doubling to 30 s, for up to 10 minutes before a record is parked.</td></tr>
 </table>
 <p>For production the same services run on any container platform. The Compose file's single Kafka broker and single database instances would be replaced by a three-broker cluster and a highly available PostgreSQL and MongoDB (section 9).</p>
 </section>
@@ -252,67 +265,84 @@ WHERE (trade_id, version) IN (
 <p>The assignment names volume ("thousands of trades"), ordering, no loss and automatic behaviour. The table below turns those into explicit requirements and states how each is met. The last column is candid: <span class="ok">Met</span> means built and tested; <span class="gap">Partly</span> or <span class="gap">Not yet</span> marks work that remains.</p>
 <table>
 <tr><th style="width:12%">Requirement</th><th>How the solution addresses it</th><th style="width:20%">Status</th></tr>
-<tr><td>Throughput</td><td>Capture is stateless, runs on Java 21 virtual threads, offers a batch endpoint (up to 1,000 trades per call) and publishes through a batching, compressed producer (<code>linger.ms=5</code>, lz4). The inbound topic has 6 partitions with a consumer thread per partition (3 threads per instance by default). Each trade costs two short database statements in one transaction. The expiry job is batched and skips locked rows so it does not stall processing.</td><td><span class="gap">Design supports it; figures not yet measured</span> (phase 9)</td></tr>
-<tr><td>Scalability</td><td>Capture and query are stateless and scale by adding instances behind a load balancer. Processing scales by adding instances up to the partition count; more partitions raise that ceiling. Kafka absorbs bursts so producers and the processor run at different speeds. Consumer lag is the signal to scale.</td><td><span class="ok">Met by design</span></td></tr>
-<tr><td>Ordering</td><td>Records are keyed by trade id, so all versions of a trade share a partition and are handled in order by one thread.</td><td><span class="ok">Met</span></td></tr>
-<tr><td>Data consistency under concurrency</td><td>The version rule is a single atomic conditional statement with a row lock, so correctness does not depend on arrival order or on how many processors run. A test sends 40 shuffled versions of one trade from 8 threads and checks that the highest version always wins and the recorded highest equals the stored highest.</td><td><span class="ok">Met</span></td></tr>
-<tr><td>No loss of accepted trades</td><td>The producer uses <code>acks=all</code> and idempotence. The capture API answers 202 only after Kafka acknowledges the record, and answers 503 if it cannot. The processor commits its offset only after the database commit and the outcome publish.</td><td><span class="ok">Met</span> (single broker in Compose, see Availability)</td></tr>
-<tr><td>Delivery guarantee and idempotency</td><td>Delivery is at-least-once. Reprocessing is harmless: the same version replaces itself, and MongoDB documents are keyed by Kafka position. After a crash between commit and publish, the trade is reprocessed and the event is published then, with type <code>REPLACED</code> rather than <code>ACCEPTED</code>.</td><td><span class="ok">Met</span>, with that documented wrinkle</td></tr>
-<tr><td>Fault handling</td><td>Technical failures are retried (3 times, 1 s apart), then the record is parked on <code>trades.inbound.DLT</code> so the partition keeps moving. Unreadable or incomplete records are parked at once. Business rejections never use the dead-letter topic.</td><td><span class="ok">Met</span></td></tr>
-<tr><td>Availability</td><td>Capture, processor and query are stateless and restart without losing data; Kafka buffers trades while the processor is down, and capture keeps accepting. Containers restart on failure and have health checks. The supplied Compose file runs a single broker and single databases, so it is not highly available.</td><td><span class="gap">Partly</span>: production needs 3 brokers (replication factor 3, min in-sync replicas 2) and replicated databases</td></tr>
-<tr><td>Durability</td><td>Trades are committed to PostgreSQL before the offset moves; inbound records stay in Kafka until retention removes them, allowing replay.</td><td><span class="ok">Met</span> (replication is a deployment choice)</td></tr>
+<tr><td>Throughput</td><td>Capture is stateless, runs on Java 21 virtual threads, offers a batch endpoint (up to 1,000 trades per call) and publishes through a batching, compressed producer. The inbound topic has 6 partitions with a consumer thread per partition (3 per instance by default). The outbox relay publishes events in batches and waits once per batch. The expiry job is batched and skips locked rows. The simulator keeps its requested rate exactly, from 1 to 50,000 trades a second, in batches of at most 1,000.</td><td><span class="gap">Design supports it; figures not yet measured</span> (phase 9). The processor still commits one transaction per trade; batching is the next tuning step.</td></tr>
+<tr><td>Read-side efficiency</td><td>The trade list is served from a dedicated index with keyset paging, so the first and the thousandth page cost the same; counts stop at 10,000 and are shown as "10,000+". The headline summary is counted once every two seconds and shared by every browser. The dashboard asks for rejections only while their tab is open, waits for a pause in typing before filtering, and cancels or ignores answers to superseded requests. A test checks the query plan of every kind of page.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Scalability</td><td>Capture and query are stateless and scale by adding instances. Processing scales by adding instances up to the partition count. Kafka absorbs bursts so producers and the processor run at different speeds. Consumer lag is the signal to scale.</td><td><span class="ok">Met by design</span></td></tr>
+<tr><td>Ordering</td><td>Records are keyed by trade id, so all versions of a trade share a partition and are handled in order by one thread. Retries after a failure hold the partition, so a later version never overtakes an earlier one. Outbox events are published in the order they were written, by one relay at a time.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Data consistency under concurrency</td><td>The version rule is a single atomic conditional statement with a row lock, so correctness does not depend on arrival order or on how many processors run. A test sends 40 shuffled versions of one trade from 8 threads and checks that the highest version always wins.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>No loss of accepted trades</td><td>The producer uses <code>acks=all</code> and idempotence. Capture answers 202 only after Kafka acknowledges the record. The processor commits its offset only after the database commit. Events are saved with the change in one transaction (outbox), so a crash can neither lose an event nor announce a rolled-back change; a test proves a failed event write rolls the trade back.</td><td><span class="ok">Met</span> (single broker in Compose, see Availability)</td></tr>
+<tr><td>Delivery guarantee and idempotency</td><td>Delivery is at-least-once. Reprocessing is harmless: the same version replaces itself, the outbox ignores a repeated event id, and the history keeps the first delivery of an event, so a trade recorded as accepted is not re-described as replaced.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Fault handling</td><td>Unreadable records and constraint violations are parked on the dead-letter topic at once. Every other failure is retried with exponential back-off for up to ten minutes, so a short database or broker outage delays trades instead of dead-lettering them; tests pause real PostgreSQL and MongoDB containers to prove it. Readable but invalid trades are rejected with a recorded reason, not dead-lettered. The query side has the same policy and its own dead-letter topics.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Availability</td><td>Capture, processor and query are stateless and restart without losing data; Kafka buffers trades while the processor is down, and capture keeps accepting. Only one expiry job and one outbox relay run at a time, and either can fail and resume. The supplied Compose file runs a single broker and single databases, so it is not highly available.</td><td><span class="gap">Partly</span>: production needs 3 brokers (replication factor 3, min in-sync replicas 2) and replicated databases</td></tr>
+<tr><td>Durability</td><td>Trades are committed to PostgreSQL before the offset moves; waiting events survive in the outbox table; inbound records stay in Kafka until retention removes them, allowing replay.</td><td><span class="ok">Met</span> (replication is a deployment choice)</td></tr>
 <tr><td>Auditability</td><td>Every store change and every rejection, with its reason and source, is kept in MongoDB and shown on the dashboard; Kafka topics allow replay.</td><td><span class="ok">Met</span></td></tr>
-<tr><td>Correctness of time</td><td>One injected clock supplies "today" to capture, processor, expiry and simulator; the zone is the server's, or the administrator's override. The shared maturity rule defines the boundary once. A test shows a Tokyo clock moves the date a day ahead of UTC.</td><td><span class="ok">Met</span></td></tr>
-<tr><td>Configurability</td><td>Time zone, partitions, concurrency, retry, expiry schedule, batch size and the login account are settings, not code.</td><td><span class="ok">Met</span></td></tr>
-<tr><td>Observability</td><td>Spring Actuator health, info and metrics on every service. The processor counts outcomes (<code>trades.processed</code> by outcome: accepted, replaced, lower version, maturity passed). Rejections are logged with the reason. The dashboard shows live counters and recent rejections.</td><td><span class="gap">Partly</span>: no distributed tracing or correlation id yet, and no metrics exporter configured</td></tr>
-<tr><td>Security</td><td>Every API, the live feed, the Actuator endpoints (except the health check) and the dashboard require HTTP Basic authentication; the dashboard and its API calls share one origin behind nginx, so no cross-origin access is needed. Inputs are validated (required fields, version of at least 1, batch size limit). Service containers run as a non-root user. Dependencies are scanned on every build and critical findings fail it.</td><td><span class="gap">Partly</span>: simple Basic auth is used for demo purpose, with one shared administrator account, no roles and no TLS; default database credentials. Section 12 gives the recommended design.</td></tr>
-<tr><td>Maintainability and testability</td><td>Small modules with one job each; the rules live in a shared module with no framework dependency; every rule was written test-first. 74 backend tests, 12 UI tests and a 28-check end-to-end script. Line coverage above 90 % in every module, with a build-failing gate at 80 %.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Correctness of time</td><td>One injected clock supplies "today" to capture, processor, expiry and simulator; the zone is the server's, or the administrator's override. The shared maturity rule defines the boundary once. MongoDB stores dates as ISO strings, so they do not shift with a server zone.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Configurability</td><td>Time zone, partitions, concurrency, retry, expiry schedule, outbox rate, batch sizes, request limits, the simulator cap and the accounts are settings, not code.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Observability</td><td>Spring Actuator health, info and metrics on every service (metrics need the <code>ops:read</code> scope). The processor counts outcomes (<code>trades.processed</code> by outcome: accepted, replaced, lower version, maturity passed, invalid trade). Rejections are logged with the reason. The dashboard shows live counters and recent rejections.</td><td><span class="gap">Partly</span>: no distributed tracing or correlation id yet, and no metrics exporter configured</td></tr>
+<tr><td>Security: access control</td><td>Every API, the live feed, the Actuator endpoints (except the health check) and the dashboard require HTTP Basic authentication. Authorisation is by scope and deny-by-default: <code>trades:write</code> to post trades, <code>trades:read</code> to read, <code>simulator:run</code> for the simulator, <code>ops:read</code> for operational endpoints; anything not listed is refused. The administrator holds all four; further accounts with fewer scopes are configuration. The services forbid cross-origin calls because the dashboard and its API calls share one origin.</td><td><span class="gap">Partly</span>: simple Basic auth is used for demo purpose, with one shared administrator account, the password sent on every request, and no TLS. Section 12 gives the production design.</td></tr>
+<tr><td>Security: input and abuse</td><td>Inputs are validated (required fields, length and character limits, version of at least 1, batch size limit). Request bodies are limited to 2 MB and callers to 600 requests a second per instance (HTTP 413 and 429); the dashboard host adds its own per-client limit. The simulator refuses runs above a configurable cap.</td><td><span class="ok">Met</span> for a demo; a shared limit across instances belongs in a gateway</td></tr>
+<tr><td>Security: containers and data</td><td>Service containers and the dashboard host run as non-root users. The dashboard host sends a content security policy, frame, referrer and content-type protections and hides its version. The query service reaches PostgreSQL through a read-only account and cannot change a trade. Base images are pinned by digest.</td><td><span class="gap">Partly</span>: default passwords in Compose and no TLS between components</td></tr>
+<tr><td>Maintainability and testability</td><td>Small modules with one job each; the rules live in a shared module with no framework dependency; every backend change was written test-first. 139 backend tests, 23 UI tests and a 33-check end-to-end script. Line coverage above 90 % in every module, with a build-failing gate at 80 %.</td><td><span class="ok">Met</span></td></tr>
 <tr><td>Portability and ease of setup</td><td>Docker is the only requirement to run the system; the same Kafka and database images are used in tests, the pipeline and the demo. The code imports into Eclipse as ordinary Maven projects.</td><td><span class="ok">Met</span></td></tr>
-<tr><td>Supply-chain safety</td><td>Trivy and <code>npm audit</code> run on every build; any critical finding (CVSS 9.0 or above) fails it. OWASP Dependency-Check runs too when an NVD API key is configured. The gate has already proved useful: it forced the move to Spring Boot 4.</td><td><span class="ok">Met</span> (OWASP run pending the key)</td></tr>
+<tr><td>Supply-chain safety</td><td>Trivy and <code>npm audit</code> scan the dependencies on every build; the built images are scanned too; any critical finding that has a fix fails the build. Workflow actions are pinned to commits and base images to digests, Dependabot proposes updates weekly, CodeQL analyses the source, and a CycloneDX software bill of materials is kept with each build. The gate has already proved useful: it forced the move to Spring Boot 4 and the choice of a clean nginx base image.</td><td><span class="ok">Met</span> (OWASP run pending the key)</td></tr>
 <tr><td>Data growth</td><td>Kafka retention bounds the log. The partial index keeps expiry cheap. MongoDB history grows without a limit today.</td><td><span class="gap">Partly</span>: add a retention (time-to-live) policy for history</td></tr>
-<tr><td>Usability</td><td>The dashboard shows the store in the assignment's column order and date format, live counters, rejection reasons, and simulator controls, in a plain corporate style.</td><td><span class="ok">Met</span></td></tr>
+<tr><td>Usability</td><td>The dashboard shows the store in the assignment's column order and date format, live counters, rejection reasons, previous and next paging, and quick and detailed simulator dialogs that keep their values and show the simulator's reason when it refuses a run, in a plain corporate style.</td><td><span class="ok">Met</span></td></tr>
 </table>
 </section>
 
 <section>
 <h1>10. Quality, testing and delivery pipeline</h1>
 <h2>Test-first approach</h2>
-<p>For each backend phase the tests were written and committed first (they failed), then the implementation was written until they passed; the commit history shows <code>test:</code> commits before the matching <code>feat:</code> commits. The dashboard is the exception: its tests and components were written together.</p>
+<p>For each backend change the tests were written and committed first (they failed), then the implementation was written until they passed; the commit history shows <code>test:</code> commits before the matching <code>feat:</code> or <code>fix:</code> commits. This includes the code-review fixes and the security work. The first version of the dashboard is the exception: its tests and components were written together; later dashboard changes were test-first.</p>
 <table>
 <tr><th style="width:22%">Level</th><th>What it covers</th><th style="width:12%">Count</th></tr>
 <tr><td>Rule unit tests</td><td>Version and maturity boundaries, exceptions, business clock</td><td>8</td></tr>
 <tr><td>Store tests on real PostgreSQL</td><td>Lower, same and higher version, maturity boundary, atomic rollback, 8-thread concurrency</td><td>8</td></tr>
-<tr><td>Processor and expiry</td><td>One outcome per trade, zone-dependent date, expiry boundary, batches, re-run safety</td><td>9</td></tr>
-<tr><td>Kafka integration</td><td>Accept, replace, reject in arrival order; past maturity; unreadable and incomplete records parked while good ones continue; capture API publishing with the right key</td><td>4</td></tr>
-<tr><td>HTTP contracts</td><td>202, 422, 400, 503, batch; simulator run control and validation of its variation inputs</td><td>15</td></tr>
-<tr><td>Query side</td><td>Store ordering and paging, MongoDB projection and de-duplication, summary, live feed, refusal without credentials</td><td>11</td></tr>
-<tr><td>Authentication</td><td>401 without or with wrong credentials, demo and configured accounts, open health check, protected Actuator, no session, simulator signs in to capture</td><td>11</td></tr>
+<tr><td>Processor, outbox and expiry</td><td>One outcome per trade, trade and event saved together or not at all, ordered and exactly-once relay including two relays at once, expiry boundary and batches, expiry events in the same transaction, background start-up run, one expiry run across two simultaneous callers</td><td>24</td></tr>
+<tr><td>Kafka integration and outages</td><td>Accept, replace, reject in arrival order; past maturity; unreadable records dead-lettered; invalid trades rejected with a reason; trades delayed but not lost while PostgreSQL is paused; capture publishing with the right key</td><td>7</td></tr>
+<tr><td>HTTP contracts</td><td>202, 422, 400 (including id limits), 503, batch; simulator run control, validation, exact pacing at low and high rates, run cap, signing in to capture</td><td>26</td></tr>
+<tr><td>Security</td><td>401 and 403 per endpoint and scope, deny by default, demo and configured accounts, open health check, protected Actuator, no session, request size and rate limits</td><td>28</td></tr>
+<tr><td>Query side</td><td>Keyset paging, index use for every page kind, capped counts, summary cache and single-flight, first-delivery-wins history, ISO dates, live feed isolation and heartbeat, events kept while MongoDB is paused, unreadable events dead-lettered, refusal without credentials</td><td>30</td></tr>
 <tr><td>Simulator generator</td><td>Scenarios are true to the versions already sent; mix matches the request; chosen counter-parties, books, maturity window and id prefix are honoured</td><td>8</td></tr>
-<tr><td>Dashboard</td><td>Table, date format, summary, rejections, filter, quick and detailed run dialogs (open, cancel, validation, request contents), same-origin API paths</td><td>12</td></tr>
-<tr><td>End-to-end regression</td><td>Whole system on Docker Compose, using dates relative to today; includes 11 authentication checks</td><td>28 checks</td></tr>
+<tr><td>Dashboard</td><td>Table, dates, summary, rejections on demand, typing pause, cancelled and ignored stale requests, cursor paging, quick and detailed run dialogs with validation and refusal messages, same-origin API paths</td><td>23</td></tr>
+<tr><td>End-to-end regression</td><td>Whole system on Docker Compose, using dates relative to today; includes authentication and hardening checks (content security policy, request size limit, non-root dashboard host, read-only database account)</td><td>33 checks</td></tr>
 </table>
 <h2>Delivery pipeline</h2>
 <figure><img src="../diagrams/cicd.svg" alt="Pipeline" style="max-height:80mm"><figcaption>Figure 6. GitHub Actions pipeline</figcaption></figure>
-<p>On every push and pull request the backend and dashboard jobs build and test, the vulnerability job scans in parallel, and the end-to-end regression runs once the build jobs pass. The latest run on the main branch has all four jobs green.</p>
+<p>On every push and pull request the backend and dashboard jobs build and test, the vulnerability job scans the dependencies in parallel and produces the software bill of materials, and the end-to-end regression runs once the build jobs pass and then scans the built images. A separate CodeQL workflow analyses the Java and TypeScript source. Workflow actions are pinned to commits.</p>
 <p>The same checks run without GitHub: <code>mvn verify</code>, <code>docker compose up --build -d</code> followed by <code>deploy/regression.sh</code>, and <code>mvn -Psecurity-scan verify</code> for OWASP Dependency-Check.</p>
 </section>
 
 <section class="pb">
 <h1>11. Known issues, risks and next steps</h1>
+<h2>Open issues</h2>
 <table>
 <tr><th style="width:30%">Item</th><th>Detail and proposed action</th></tr>
-<tr><td>Throughput not yet measured</td><td>Phase 9 will run the simulator at increasing rates and record trades per second, consumer lag and latency, then tune partitions, threads and batching. On hold at the sponsor's request.</td></tr>
-<tr><td>Simple Basic auth is used for demo purpose</td><td>Every service and the dashboard require HTTP Basic authentication with a single administrator account (<code>admin</code>; the password is set by <code>TRADE_SECURITY_PASSWORD</code> and has a demo default). There are no roles, the password travels with every request, and there is no TLS, so it can be read on the network. The same account is shared by users and by the simulator. Replace with the design in section 12 before any use beyond a demo.</td></tr>
-<tr><td>No TLS; default database credentials</td><td>Add TLS on all links and take secrets from a vault instead of defaults.</td></tr>
-<tr><td>Single broker and databases in Compose</td><td>Production deployment needs a Kafka cluster (replication factor 3, min in-sync replicas 2) and replicated PostgreSQL and MongoDB.</td></tr>
-<tr><td>Commit-then-publish window in the processor</td><td>A crash between the database commit and the outcome publish makes the trade reprocessed, so its event is published as <code>REPLACED</code>. A transactional outbox would remove the wrinkle if exact event types matter.</td></tr>
+<tr><td>Throughput not yet measured</td><td>Phase 9 will run the simulator at increasing rates and record trades per second, consumer lag and latency, then tune partitions, threads and batching. The processor still commits one transaction per trade; batching is the likely first change. On hold at the sponsor's request.</td></tr>
+<tr><td>Simple Basic auth is used for demo purpose</td><td>Every service and the dashboard require HTTP Basic authentication. Scopes are enforced per endpoint and anything unlisted is refused, but there is one shared administrator account by default (the password is set by <code>TRADE_SECURITY_PASSWORD</code> and has a demo default), the password travels with every request, and there is no TLS, so it can be read on the network. Replace with the design in section 12 before any use beyond a demo.</td></tr>
+<tr><td>No API gateway in the demo scope</td><td>The demo has no gateway. The services are reachable directly on their own ports, each protecting itself, and the dashboard host only serves the page and forwards the page's calls. As a result: there is no single place for token validation, TLS termination, rate limits shared across instances, request logging or an audit of who called what; the request and rate limits are per instance and in memory; the browser holds the Basic credentials; and the simulator and Actuator ports are as exposed as the APIs. A gateway (or, for the dashboard, a backend-for-frontend holding the tokens) is recommended before real use; section 12 describes the design and how the system operates without one.</td></tr>
+<tr><td>No TLS; default credentials</td><td>Add TLS on all links and take secrets from a vault instead of defaults. The Compose file and application settings carry demo passwords for the administrator and both database accounts.</td></tr>
+<tr><td>Single broker and databases in Compose</td><td>Production deployment needs a Kafka cluster (replication factor 3, min in-sync replicas 2) and replicated PostgreSQL and MongoDB. Topic replication is hard-coded to 1 in the services today.</td></tr>
 <tr><td>Fixed partition count</td><td>Six partitions cap processor parallelism at six threads per consumer group; increasing the count later is possible but needs care for keyed ordering.</td></tr>
-<tr><td>Live feed with several query instances</td><td>An event reaches only the browsers connected to the instance that consumed it. The dashboard also polls every three seconds, so it stays correct.</td></tr>
-<tr><td>Observability gaps</td><td>Add correlation ids from HTTP header through Kafka header to logs, and a Prometheus exporter with dashboards and alerts on consumer lag and dead-letter volume.</td></tr>
+<tr><td>Observability gaps</td><td>Add correlation ids from HTTP header through Kafka header to logs, and a Prometheus exporter with dashboards and alerts on consumer lag, outbox size and dead-letter volume.</td></tr>
+<tr><td>Dead-letter topics are not watched or replayed</td><td>Nothing alerts on them or replays them; add an alert and a small replay command.</td></tr>
 <tr><td>History retention</td><td>Add a time-to-live on MongoDB history.</td></tr>
+<tr><td>Live feed with several query instances</td><td>An event reaches only the browsers connected to the instance that consumed it. The dashboard also polls every three seconds, so it stays correct.</td></tr>
+<tr><td>Test images are not pinned</td><td>The container images used by the integration tests are referenced by tag, not digest.</td></tr>
 <tr><td>OWASP Dependency-Check</td><td>Not yet run: it needs an NVD API key as a repository secret. Trivy covers the gate meanwhile.</td></tr>
 <tr><td>Class diagrams</td><td>Planned with phase 9.</td></tr>
 </table>
+<h2>Code review: what has been done</h2>
+<p>A code review of the first version found 49 issues (<code>docs/CODE_REVIEW.md</code>). Steps 1 to 4 of its suggested order, and the security items that do not need a gateway, are done:</p>
+<table>
+<tr><th style="width:18%">Step</th><th>Fixed</th></tr>
+<tr><td>1. Silent loss and bugs</td><td>Trades with ids that cannot be stored are refused or recorded as invalid, not accepted and dropped; short outages no longer dead-letter trades (back-off retries); the query side no longer skips events while MongoDB is down; the simulator keeps its requested rate; the run dialog stays open and explains a refusal.</td></tr>
+<tr><td>2. Failure tests</td><td>Tests that pause PostgreSQL and MongoDB, dead-letter unreadable events, and run the expiry job from two callers at once.</td></tr>
+<tr><td>3. Event integrity</td><td>Transactional outbox; expiry events in the same transaction; start-up expiry run in the background; first-delivery-wins history; ISO dates in MongoDB; replaced-versus-new detection without relying on a database internal.</td></tr>
+<tr><td>4. Read side</td><td>Sequence index with keyset paging and capped counts; cached summary; live feed that cannot be stalled by one browser; dashboard typing pause, cancellation and stale-answer protection.</td></tr>
+<tr><td>Security</td><td>Scopes and deny-by-default; request size and rate limits; simulator cap; read-only database account; unprivileged dashboard host with content security policy; pinned images and actions; image scan, software bill of materials, CodeQL and Dependabot.</td></tr>
+</table>
+<p>Not yet addressed from the review: batching in the processor (PERF-1, PERF-5), the simulator's memory use for very large runs (PERF-7), capture publish timeouts (REL-6), more frequent expiry runs (REL-8), idempotency keys (REL-12), batch status codes (BUG-5), simulator client timeouts (BUG-4), schema versioning and topic management (ARCH-2, ARCH-3), observability and operations items (OPS-1 to OPS-5), accessibility of the dialogs (UI-1 to UI-3), and the remaining test items (TEST-2 to TEST-4).</p>
 </section>
 
 <section class="pb">
@@ -350,10 +380,30 @@ WHERE (trade_id, version) IN (
 <li>Audit: the caller's subject and client id are logged with each trade and carried in a Kafka header, so the history shows who submitted every trade.</li>
 <li>Secrets come from a vault and rotate; nothing is committed to the repository.</li>
 </ul>
+<h2>What the demo implements today</h2>
+<table>
+<tr><th style="width:28%">Capability</th><th style="width:26%">Demo today</th><th>Recommended design</th></tr>
+<tr><td>Who is calling</td><td>HTTP Basic; one shared <code>admin</code> account by default</td><td>OAuth 2.0 / OpenID Connect; one identity per person and per system</td></tr>
+<tr><td>What they may do</td><td>Scopes <code>trades:write</code>, <code>trades:read</code>, <code>simulator:run</code>, <code>ops:read</code> checked on every path; deny by default; the administrator holds all four</td><td>The same scopes, carried in a signed token and granted through roles</td></tr>
+<tr><td>Data-level rules</td><td>None</td><td>Entitlements to books and counter-parties in the token</td></tr>
+<tr><td>Transport</td><td>Plain HTTP</td><td>TLS everywhere, mutual TLS between services and to Kafka</td></tr>
+<tr><td>Where it is enforced</td><td>In each service, by one shared module</td><td>At a gateway and again in each service</td></tr>
+<tr><td>Limits</td><td>Per instance, in memory (413, 429)</td><td>Shared limits per client at the gateway</td></tr>
+<tr><td>Secrets</td><td>Environment variables with demo defaults</td><td>A vault, rotated</td></tr>
+</table>
+<h2>Operating without a gateway</h2>
+<p>The demo scope has no gateway, and the recommended design still works without one if the demand for it is not yet there:</p>
+<ul>
+<li><b>Services as resource servers.</b> Capture, query and simulator validate the token themselves. Because they already import one shared security module with the scope checks, the change is made once: the filter chain switches from Basic to token validation, and the scope rules stay as they are.</li>
+<li><b>Machine callers</b> obtain a token with the client-credentials flow and call the capture API directly.</li>
+<li><b>The dashboard</b> then needs a small backend-for-frontend, which the dashboard host can become: it completes the sign-in, keeps the tokens, and gives the browser only a secure session cookie. Without it the browser would have to hold the token, where a script injected into the page could read it, and the live feed would have to be rewritten because the browser's event-stream API cannot send a token header.</li>
+<li><b>TLS</b> terminates at each service or at the dashboard host; rate limits stay per instance.</li>
+</ul>
+<p>What a gateway adds is a single enforcement and audit point, shared limits, and central TLS. It is recommended once several instances, several client systems or an audit requirement exist.</p>
 <h2>Moving from the demo to this design</h2>
 <ol>
-<li>Add the OAuth2 resource-server starter to the shared security module and switch its filter chain from Basic to JWT validation; because all services import that one module, the change is made once.</li>
-<li>Add scope checks to the controllers and tests for 401 and 403 per endpoint.</li>
+<li>Add the OAuth2 resource-server starter to the shared security module and switch its filter chain from Basic to JWT validation, mapping token scopes to the same authority names; because all services import that one module, the change is made once.</li>
+<li>Keep the existing scope rules and their 401 and 403 tests; add token-specific tests (expired, wrong audience, missing scope).</li>
 <li>Put a gateway in front (the dashboard's nginx already forwards API paths) and move the browser to a session cookie.</li>
 <li>Enable TLS, Kafka access lists and per-service database roles.</li>
 </ol>
@@ -368,23 +418,23 @@ WHERE (trade_id, version) IN (
 <tr><td>SQL and NoSQL databases</td><td>PostgreSQL trade store; MongoDB history</td><td>Store, projection and query tests</td></tr>
 <tr><td>Rule 1: lower version rejected, same replaces</td><td>Atomic guard in the trade store; exceptions</td><td>Store tests, concurrency test, Kafka integration, regression</td></tr>
 <tr><td>Rule 2: past maturity rejected</td><td>Shared maturity rule in capture and processor</td><td>Rule tests, HTTP 422 test, Kafka integration, regression</td></tr>
-<tr><td>Rule 3: matured trades expired</td><td>Scheduled expiry job with lock</td><td>Expiry tests</td></tr>
-<tr><td>Thousands of trades, any transmission</td><td>Partitioned Kafka, batch API, stateless capture, validation in the processor</td><td>Simulator 500-trade regression; load figures pending</td></tr>
+<tr><td>Rule 3: matured trades expired</td><td>Scheduled expiry job with lock; events through the outbox</td><td>Expiry, outbox and lock tests</td></tr>
+<tr><td>Thousands of trades, any transmission</td><td>Partitioned Kafka, batch API, stateless capture, validation in the processor, retries that ride out outages</td><td>Simulator 500-trade regression; outage tests; load figures pending</td></tr>
 <tr><td>Stored in a specific sequence</td><td>Trade id ascending, version descending</td><td>Query repository test, dashboard test</td></tr>
-<tr><td>JUnit, test-first</td><td>Tests committed before implementation</td><td>Commit history; 74 backend tests</td></tr>
+<tr><td>JUnit, test-first</td><td>Tests committed before implementation</td><td>Commit history; 139 backend tests</td></tr>
 <tr><td>Pipeline with regression and vulnerability scan; fail on critical</td><td>GitHub Actions workflow</td><td>Pipeline runs; the scan failed the build on real findings before the Boot 4 move</td></tr>
-<tr><td>PlantUML diagrams</td><td>Component, sequence, data model, deployment and pipeline diagrams</td><td>Sources and rendered SVGs in <code>docs/diagrams</code></td></tr>
+<tr><td>PlantUML diagrams</td><td>Component, three sequence diagrams, data model, deployment, pipeline and recommended-security diagrams</td><td>Sources and rendered SVGs in <code>docs/diagrams</code></td></tr>
 </table>
 
 <h2>Appendix: interfaces and configuration</h2>
 <table>
 <tr><th style="width:24%">Service (port)</th><th>Interface</th></tr>
-<tr><td>Capture (8081)</td><td><code>POST /api/v1/trades</code> returns 202, 422, 400 or 503. <code>POST /api/v1/trades/batch</code> accepts up to 1,000 trades and returns a result per trade.</td></tr>
+<tr><td>Capture (8081)</td><td>Needs <code>trades:write</code>. <code>POST /api/v1/trades</code> returns 202, 422, 400, 413, 429 or 503. <code>POST /api/v1/trades/batch</code> accepts up to 1,000 trades and returns a result per trade.</td></tr>
 <tr><td>Processor (8082)</td><td>Kafka consumer of <code>trades.inbound</code>; Actuator health, info, metrics.</td></tr>
-<tr><td>Query (8083)</td><td><code>GET /api/v1/trades</code> (paged, filter by trade id prefix), <code>/events</code>, <code>/rejections</code>, <code>/summary</code>, and <code>/stream</code> (Server-Sent Events).</td></tr>
+<tr><td>Query (8083)</td><td><code>GET /api/v1/trades</code> (keyset paging: <code>size</code>, <code>afterTradeId</code> with <code>afterVersion</code>; case-sensitive <code>tradeId</code> prefix; returns <code>items</code>, <code>total</code>, <code>totalExact</code>, <code>next</code>), <code>/events</code>, <code>/rejections</code>, <code>/summary</code>, and <code>/stream</code> (Server-Sent Events). Needs <code>trades:read</code>.</td></tr>
 <tr><td>Simulator (8084)</td><td><code>POST /api/v1/simulations</code> starts a run (volume, scenario mix, and optional counter-parties, books, maturity window and id prefix); <code>GET</code> and <code>DELETE /api/v1/simulations/current</code> report and stop it.</td></tr>
 <tr><td>Dashboard (8080)</td><td>Web page served by nginx after login. Forwards <code>/query/...</code> to the query service and <code>/simulator/...</code> to the simulator.</td></tr>
-<tr><td>All services</td><td>HTTP Basic authentication on every path except <code>/actuator/health</code>.</td></tr>
+<tr><td>All services</td><td>HTTP Basic authentication on every path except <code>/actuator/health</code>; scopes per path; anything unlisted is refused.</td></tr>
 </table>
 <p>Repository layout: <code>trade-common</code> (model, rules, schema), <code>trade-capture-service</code>, <code>trade-processor-service</code>, <code>trade-query-service</code>, <code>trade-simulator</code>, <code>trade-dashboard-ui</code>, <code>deploy</code> (Compose, Dockerfile, regression script) and <code>docs</code>.</p>
 </section>

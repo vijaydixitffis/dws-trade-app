@@ -1,0 +1,26 @@
+@startuml sequence-event-delivery
+title Trade Store - Event Delivery to History and Dashboard
+autonumber
+skinparam maxMessageSize 150
+skinparam ParticipantPadding 8
+
+participant "Outbox relay\n(in the processor)" as relay
+database "PostgreSQL" as pg
+queue "Kafka" as k
+participant "Query service" as q
+database "MongoDB" as mongo
+participant "Dashboard" as ui
+
+loop every 200 ms
+  group one database transaction
+    relay -> pg : take the advisory lock,\nread the oldest outbox rows
+    relay -> k : trades.events (ACCEPTED, REPLACED, EXPIRED)\nwait for all acknowledgements
+    relay -> pg : delete the published rows
+  end
+end
+
+k -> q : trades.events, trades.rejected
+q -> mongo : insert if absent\n(first delivery wins)
+q -> ui : Server-Sent Event\n(own queue per browser)
+ui -> q : refresh summary and trade page\nover REST
+@enduml

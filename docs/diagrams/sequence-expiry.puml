@@ -4,21 +4,27 @@ autonumber
 
 participant "Scheduler\n(processor instance)" as sch
 database "PostgreSQL" as pg
+participant "Outbox relay" as relay
 queue "Kafka" as k
 participant "Query service" as q
 database "MongoDB" as mongo
 
 sch -> pg : acquire ShedLock "trade-expiry"
 alt lock acquired
-  loop until no rows remain
-    sch -> pg : UPDATE trade SET expired = 'Y'\nWHERE maturity_date < today\nAND expired = 'N' (batch)
-    sch -> k : trades.events (EXPIRED) per trade
+  loop until a batch is not full
+    group one database transaction per batch
+      sch -> pg : UPDATE trade SET expired = 'Y'\nWHERE maturity_date < today\nAND expired = 'N' (batch of 500)
+      sch -> pg : insert one outbox row per trade
+    end
   end
   sch -> pg : release lock
 else another instance holds the lock
   sch -> sch : skip this run
 end
 
+relay -> pg : read oldest outbox rows
+relay -> k : trades.events (EXPIRED), wait for acks
+relay -> pg : delete published rows
 k -> q : trades.events
-q -> mongo : upsert event
+q -> mongo : insert event
 @enduml

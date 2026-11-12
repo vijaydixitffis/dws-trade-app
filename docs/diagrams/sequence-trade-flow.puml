@@ -1,44 +1,43 @@
 @startuml sequence-trade-flow
-title Trade Store - Trade Flow
+title Trade Store - Capture and Processing
 autonumber
-skinparam maxMessageSize 170
+skinparam maxMessageSize 150
 skinparam ParticipantPadding 8
-skinparam BoxPadding 8
 
 participant "Simulator" as sim
 participant "Capture API" as cap
 queue "Kafka" as k
 participant "Processor" as proc
 database "PostgreSQL" as pg
-participant "Query service" as q
-database "MongoDB" as mongo
-participant "Dashboard" as ui
 
-sim -> cap : POST /api/v1/trades
-alt maturityDate < today
-  cap -> k : trades.rejected (MATURITY_DATE_PASSED)
-  cap --> sim : 422 Unprocessable Entity
-else structurally valid
+sim -> cap : POST /api/v1/trades (Basic auth)
+alt invalid (400) or maturityDate < today (422)
+  cap -> k : trades.rejected (422 only)
+  cap --> sim : 400 or 422
+else valid
   cap -> k : trades.inbound (key = tradeId)
   cap --> sim : 202 Accepted
 end
 
 k -> proc : consume record
-proc -> proc : re-check maturity
-proc -> pg : upsert trade_latest\nWHERE latest_version <= incoming
-
-alt 1 row affected (higher or equal version)
-  proc -> pg : upsert trade (trade_id, version)
-  proc -> pg : commit
-  proc -> k : trades.events (ACCEPTED or REPLACED)
-else 0 rows affected (lower version)
-  proc -> proc : throw LowerVersionTradeException
-  proc -> pg : rollback
-  proc -> k : trades.rejected (LOWER_VERSION)
+alt unreadable JSON
+  proc -> k : trades.inbound.DLT
+else readable but fails validation
+  proc -> k : trades.rejected (INVALID_TRADE)
+else valid trade
+  group one database transaction
+    proc -> pg : claim version in trade_latest\nWHERE latest_version <= incoming
+    alt 1 row affected
+      proc -> pg : upsert trade (trade_id, version)
+      proc -> pg : insert outbox row
+      proc -> pg : commit
+    else 0 rows (lower version)
+      proc -> pg : rollback
+    end
+  end
+  opt rolled back
+    proc -> k : trades.rejected\n(LOWER_VERSION or MATURITY_DATE_PASSED)
+  end
 end
 proc -> k : commit offset
-
-k -> q : trades.events, trades.rejected
-q -> mongo : upsert by Kafka position
-q -> ui : Server-Sent Event
 @enduml

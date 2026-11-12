@@ -21,6 +21,14 @@ package "PostgreSQL (system of record)" {
     created_date : date
     expired : char(1) Y or N
   }
+  entity "outbox" as outbox {
+    * id : bigserial <<PK>>
+    --
+    event_id : varchar <<unique>>
+    topic, message_key : varchar
+    payload : text
+    created_at : timestamptz
+  }
   entity "shedlock" as lock {
     * name : varchar <<PK>>
     --
@@ -47,6 +55,7 @@ package "MongoDB (history and audit)" {
 }
 
 latest ||..o{ trade : "highest version\nof a trade id"
+outbox -[hidden]right-> lock
 lock -[hidden]down-> events
 trade -[hidden]down-> events
 events -[hidden]right-> rej

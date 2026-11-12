@@ -1,6 +1,6 @@
 # Trade Store — High-Level Architecture
 
-Status: agreed design; implementation in progress (see `ACTIVITY_LOG.md`).
+Status: the original design note. The current, complete design is `docs/Trade-Store-HLD.pdf` (version 1.1); where the two differ, for example the transactional outbox, the invalid-trade rejection, the retry policy, the read-only database account and the security model, the HLD is correct.
 Repository: https://github.com/vijaydixitffis/dws-trade-app
 Source: "VD Trade Assignment – For Architect Lead role" (PDF).
 
