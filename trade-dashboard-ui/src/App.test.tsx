@@ -46,6 +46,10 @@ function stubFetch(overrides: Record<string, unknown> = {}) {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       calls.push({ url, init });
+      const refused = overrides.postResponse as { ok: boolean; status: number; body: unknown } | undefined;
+      if (refused && init?.method === 'POST') {
+        return { ok: refused.ok, status: refused.status, json: async () => refused.body } as Response;
+      }
       const body = url.includes('/summary')
         ? summary
         : url.includes('/trades')
@@ -230,6 +234,80 @@ test('calls the services through same-origin paths so the browser login covers t
       '/simulator/api/v1/simulations/current',
     ]),
   );
+});
+
+test('keeps the dialog open and shows the reason when the simulator refuses the run', async () => {
+  stubFetch({ postResponse: { ok: false, status: 400, body: { detail: 'count: must be at most 10000000' } } });
+  render(<App />);
+  const dialog = await openDialog('Quick run');
+
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Start run' }));
+
+  expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent('count: must be at most 10000000');
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+});
+
+test('explains a refusal because another run is in progress', async () => {
+  stubFetch({ postResponse: { ok: false, status: 409, body: { runId: 'S1', running: true } } });
+  render(<App />);
+  const dialog = await openDialog('Quick run');
+
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Start run' }));
+
+  expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent(
+    'Another run is already in progress.',
+  );
+});
+
+test('refuses values the simulator would refuse before they are sent', async () => {
+  stubFetch();
+  render(<App />);
+  const dialog = await openDialog('Quick run');
+  const start = within(dialog).getByRole('button', { name: 'Start run' });
+
+  fireEvent.change(within(dialog).getByLabelText('Higher version %'), { target: { value: '-5' } });
+  expect(within(dialog).getByText('Each percentage must be between 0 and 100.')).toBeInTheDocument();
+  expect(start).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText('Higher version %'), { target: { value: '20' } });
+
+  fireEvent.change(within(dialog).getByLabelText('Trades to send'), { target: { value: '10000001' } });
+  expect(within(dialog).getByText('Trades to send must be between 1 and 10,000,000.')).toBeInTheDocument();
+  expect(start).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText('Trades to send'), { target: { value: '100' } });
+
+  fireEvent.change(within(dialog).getByLabelText('Trades per second'), { target: { value: '50001' } });
+  expect(within(dialog).getByText('Trades per second must be between 1 and 50,000.')).toBeInTheDocument();
+  expect(start).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText('Trades per second'), { target: { value: '500' } });
+  expect(start).toBeEnabled();
+  expect(calls.some((call) => call.init?.method === 'POST')).toBe(false);
+});
+
+test('detailed run refuses an unsafe prefix, a window over 3,650 days and oversized names', async () => {
+  stubFetch();
+  render(<App />);
+  const dialog = await openDialog('Detailed run');
+  const start = within(dialog).getByRole('button', { name: 'Start run' });
+
+  await userEvent.type(within(dialog).getByLabelText('Trade id prefix'), 'a b');
+  expect(
+    within(dialog).getByText('The trade id prefix may use letters, digits and hyphens, up to 16 characters.'),
+  ).toBeInTheDocument();
+  expect(start).toBeDisabled();
+  await userEvent.clear(within(dialog).getByLabelText('Trade id prefix'));
+  expect(start).toBeEnabled();
+
+  fireEvent.change(within(dialog).getByLabelText('Latest maturity (days ahead)'), { target: { value: '4000' } });
+  expect(within(dialog).getByText('Maturity days must be between 0 and 3,650.')).toBeInTheDocument();
+  expect(start).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText('Latest maturity (days ahead)'), { target: { value: '90' } });
+  expect(start).toBeEnabled();
+
+  await userEvent.type(within(dialog).getByLabelText('Counter-party ids'), 'N'.repeat(33));
+  expect(
+    within(dialog).getByText('Counter-party and book names may be up to 32 characters, at most 100 of each.'),
+  ).toBeInTheDocument();
+  expect(start).toBeDisabled();
 });
 
 test('says so when the store is empty', async () => {
