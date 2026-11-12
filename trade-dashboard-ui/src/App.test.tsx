@@ -277,8 +277,8 @@ test('refuses values the simulator would refuse before they are sent', async () 
   expect(start).toBeDisabled();
   fireEvent.change(within(dialog).getByLabelText('Higher version %'), { target: { value: '20' } });
 
-  fireEvent.change(within(dialog).getByLabelText('Trades to send'), { target: { value: '10000001' } });
-  expect(within(dialog).getByText('Trades to send must be between 1 and 10,000,000.')).toBeInTheDocument();
+  fireEvent.change(within(dialog).getByLabelText('Trades to send'), { target: { value: '1000001' } });
+  expect(within(dialog).getByText('Trades to send must be between 1 and 1,000,000.')).toBeInTheDocument();
   expect(start).toBeDisabled();
   fireEvent.change(within(dialog).getByLabelText('Trades to send'), { target: { value: '100' } });
 

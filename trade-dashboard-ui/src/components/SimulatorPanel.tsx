@@ -66,8 +66,8 @@ const inRange = (value: number, min: number, max: number) => Number.isInteger(va
 /** The same limits the simulator enforces, so a value it would refuse is caught before it is sent. */
 function bulkErrors(bulk: Bulk): string[] {
   const errors: string[] = [];
-  if (!inRange(bulk.count, 1, 10_000_000)) {
-    errors.push('Trades to send must be between 1 and 10,000,000.');
+  if (!inRange(bulk.count, 1, 1_000_000)) {
+    errors.push('Trades to send must be between 1 and 1,000,000.');
   }
   if (!inRange(bulk.ratePerSecond, 1, 50_000)) {
     errors.push('Trades per second must be between 1 and 50,000.');
