@@ -1,4 +1,5 @@
 # Whole system:      docker compose -f deploy/docker-compose.yml up --build
+# Settings:          copy deploy/.env.example to deploy/.env (all values have demo defaults)
 # Infrastructure only (run services from the IDE):
 #                    docker compose -f deploy/docker-compose.yml up kafka postgres mongo
 name: dws-trade-app
@@ -20,7 +21,7 @@ x-env: &env
 
 services:
   kafka:
-    image: apache/kafka:3.9.1
+    image: apache/kafka:3.9.1@sha256:4ceccc577f03f51f6af8dbfda55194d0d892f4fa7913ffbded567ce3895622ed
     ports: ["9092:9092"]
     environment:
       KAFKA_NODE_ID: 1
@@ -42,19 +43,23 @@ services:
       retries: 20
 
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:e5d2edd28b1f8d40a0a6c0c9cdc545b19b56a0d5d88f94bc11a97d970d4700d0
     ports: ["5432:5432"]
     environment:
       POSTGRES_DB: tradestore
       POSTGRES_USER: trade
-      POSTGRES_PASSWORD: trade
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trade}
+      # The query service connects as a read-only account created by the init script.
+      TRADE_RO_PASSWORD: ${TRADE_RO_PASSWORD:-trade_ro}
+    volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U trade -d tradestore"]
       interval: 5s
       retries: 20
 
   mongo:
-    image: mongo:8.2
+    image: mongo:8.2@sha256:e0ce8c35124d4a9f9785532d1f268f39e9728ffa1cb38f46fa482436424c4bd3
     ports: ["27017:27017"]
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
@@ -75,6 +80,8 @@ services:
     environment:
       <<: *env
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/tradestore
+      SPRING_DATASOURCE_USERNAME: trade
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-trade}
     depends_on:
       kafka: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -85,7 +92,10 @@ services:
     ports: ["8083:8083"]
     environment:
       <<: *env
+      # Read-only database account: the query service cannot change a trade.
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/tradestore
+      SPRING_DATASOURCE_USERNAME: trade_ro
+      SPRING_DATASOURCE_PASSWORD: ${TRADE_RO_PASSWORD:-trade_ro}
       SPRING_MONGODB_URI: mongodb://mongo:27017/tradestore
     depends_on:
       kafka: { condition: service_healthy }
@@ -103,12 +113,12 @@ services:
 
   trade-dashboard-ui:
     build: { context: ../trade-dashboard-ui }
-    ports: ["8080:80"]
+    ports: ["8080:8080"]
     environment:
       TRADE_SECURITY_USERNAME: ${TRADE_SECURITY_USERNAME:-admin}
       TRADE_SECURITY_PASSWORD: ${TRADE_SECURITY_PASSWORD:-admin@2026!}
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/healthz"]
       interval: 5s
       retries: 20
     depends_on: [trade-query-service, trade-simulator]

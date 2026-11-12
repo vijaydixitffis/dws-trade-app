@@ -98,6 +98,23 @@ check "dashboard forwards the login to the query API"      200 "$(code -u "$AUTH
 check "dashboard forwards the login to the simulator API"  200 "$(code -u "$AUTH" "$DASHBOARD/simulator/api/v1/simulations/current")"
 check "dashboard API path refuses a call without login"    401 "$(code "$DASHBOARD/query/api/v1/summary")"
 
+echo "Hardening"
+check "dashboard sends a content security policy"        1 "$(curl -sI -u "$AUTH" "$DASHBOARD/" | grep -ic '^content-security-policy:')"
+check "dashboard does not reveal its server version"     0 "$(curl -sI -u "$AUTH" "$DASHBOARD/" | grep -i '^server:' | grep -c '[0-9]\.[0-9]')"
+check "oversized request body is refused (413)"          413 "$(head -c 3000000 /dev/zero | tr '\0' 'x' | code -u "$AUTH" -X POST "$CAPTURE/api/v1/trades" -H 'Content-Type: application/json' --data-binary @-)"
+if command -v docker >/dev/null 2>&1; then
+  COMPOSE="docker compose -f $(cd "$(dirname "$0")" && pwd)/docker-compose.yml"
+  if [ -n "$($COMPOSE ps -q postgres 2>/dev/null)" ]; then
+    RO_PASSWORD=${TRADE_RO_PASSWORD:-trade_ro}
+    DASHBOARD_UID=$($COMPOSE exec -T trade-dashboard-ui id -u | tr -d '\r')
+    check "dashboard server does not run as root"          false "$([ "$DASHBOARD_UID" = 0 ] && echo true || echo false)"
+    check "read-only database account can read trades"     0 "$($COMPOSE exec -T -e PGPASSWORD="$RO_PASSWORD" postgres psql -U trade_ro -d tradestore -Atc 'SELECT 1 FROM trade LIMIT 1' >/dev/null 2>&1; echo $?)"
+    # Capture the output first: with pipefail, grep -q closing the pipe early would look like a failure.
+    DELETE_OUTPUT=$($COMPOSE exec -T -e PGPASSWORD="$RO_PASSWORD" postgres psql -U trade_ro -d tradestore -c 'DELETE FROM trade WHERE false' 2>&1 || true)
+    check "read-only database account cannot change trades" denied "$(printf '%s' "$DELETE_OUTPUT" | grep -qi 'permission denied' && echo denied || echo allowed)"
+  fi
+fi
+
 if [ "$FAILED" -ne 0 ]; then
   echo "REGRESSION FAILED"
   exit 1

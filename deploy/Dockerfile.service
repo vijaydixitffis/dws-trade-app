@@ -1,6 +1,7 @@
 # Builds one Spring Boot service. Build context is the repository root.
 #   docker build -f deploy/Dockerfile.service --build-arg MODULE=trade-capture-service .
-FROM maven:3.9-eclipse-temurin-21 AS build
+# Base images are pinned by digest; Dependabot proposes updates.
+FROM maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320 AS build
 ARG MODULE
 WORKDIR /src
 COPY pom.xml .
@@ -13,7 +14,7 @@ COPY trade-simulator trade-simulator
 RUN --mount=type=cache,target=/root/.m2 mvn -q -B -pl ${MODULE} -am package -DskipTests -Djacoco.skip=true \
  && cp ${MODULE}/target/${MODULE}-*.jar /app.jar
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jre@sha256:18bb4a91a3dea3f03ee31d3755af34dfb40f904fc77ab56cdc2f092e32fff9c2
 RUN useradd --system --no-create-home app
 USER app
 COPY --from=build /app.jar /app.jar
