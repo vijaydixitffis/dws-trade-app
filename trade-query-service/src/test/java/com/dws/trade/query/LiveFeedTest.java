@@ -29,7 +29,7 @@ class LiveFeedTest {
 
     @Test
     void deliversEveryMessageToEverySubscriberInOrder() {
-        LiveFeed feed = new LiveFeed(10, 100);
+        LiveFeed feed = new LiveFeed(10, 100, 5_000);
         Recording first = new Recording();
         Recording second = new Recording();
         feed.subscribe(first);
@@ -48,8 +48,8 @@ class LiveFeedTest {
     }
 
     @Test
-    void aStuckSubscriberNeverBlocksPublishingAndIsDropped() throws Exception {
-        LiveFeed feed = new LiveFeed(10, 8);
+    void aStuckSubscriberNeverBlocksPublishingAndIsDroppedWhileABusyOneIsKept() throws Exception {
+        LiveFeed feed = new LiveFeed(10, 8, 300);
         CountDownLatch stuck = new CountDownLatch(1);
         LiveFeed.Sender blocked = new LiveFeed.Sender() {
             @Override
@@ -73,18 +73,23 @@ class LiveFeedTest {
 
         long started = System.nanoTime();
         for (int i = 0; i < 1_000; i++) {
-            feed.publish("trade-event", "{}");
+            feed.publish("trade-event", "{\"n\":" + i + "}");
         }
         long millis = (System.nanoTime() - started) / 1_000_000;
 
         assertThat(millis).isLessThan(1_000);
+        // The burst overflowed both small queues, but only the stuck subscriber has stopped making progress.
+        assertThat(feed.subscriberCount()).isEqualTo(2);
+        Thread.sleep(400);
+        feed.heartbeat();
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(feed.subscriberCount()).isEqualTo(1));
-        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(healthy.received).hasSize(1_001));
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(healthy.received).contains("trade-event:{\"n\":999}", "heartbeat:{}"));
     }
 
     @Test
     void dropsASubscriberWhoseConnectionFails() {
-        LiveFeed feed = new LiveFeed(10, 10);
+        LiveFeed feed = new LiveFeed(10, 10, 5_000);
         feed.subscribe(new LiveFeed.Sender() {
             @Override
             public void send(String name, String data) throws IOException {
@@ -101,7 +106,7 @@ class LiveFeedTest {
 
     @Test
     void sendsAHeartbeatSoIdleConnectionsStayOpen() {
-        LiveFeed feed = new LiveFeed(10, 10);
+        LiveFeed feed = new LiveFeed(10, 10, 5_000);
         Recording recording = new Recording();
         feed.subscribe(recording);
 
@@ -112,7 +117,7 @@ class LiveFeedTest {
 
     @Test
     void refusesSubscribersBeyondTheLimit() {
-        LiveFeed feed = new LiveFeed(2, 10);
+        LiveFeed feed = new LiveFeed(2, 10, 5_000);
         feed.subscribe(new Recording());
         feed.subscribe(new Recording());
 

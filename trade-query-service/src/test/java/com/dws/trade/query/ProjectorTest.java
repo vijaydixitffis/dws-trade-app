@@ -36,7 +36,7 @@ class ProjectorTest {
         mongo.dropCollection(EventDocument.class);
         mongo.dropCollection(RejectionDocument.class);
         history = new History(mongo);
-        projector = new Projector(mapper, history, new LiveFeed());
+        projector = new Projector(mapper, history, new LiveFeed(10, 100, 5_000));
     }
 
     private static String event(String id, String type, String at) {

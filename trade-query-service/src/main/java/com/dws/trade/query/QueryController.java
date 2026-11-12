@@ -1,16 +1,17 @@
 package com.dws.trade.query;
 
-import com.dws.trade.event.RejectionReason;
-import com.dws.trade.event.TradeEventType;
 import com.dws.trade.model.StoredTrade;
-import java.time.Clock;
-import java.time.LocalDate;
 import java.util.List;
+import java.util.regex.Pattern;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
@@ -18,33 +19,50 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class QueryController {
 
     private static final int MAX_PAGE = 500;
+    private static final Pattern TRADE_ID = Pattern.compile("[A-Za-z0-9._-]{0,64}");
 
     private final TradeReadRepository trades;
     private final History history;
     private final LiveFeed liveFeed;
-    private final Clock clock;
+    private final SummaryService summary;
 
-    public QueryController(TradeReadRepository trades, History history, LiveFeed liveFeed, Clock clock) {
+    public QueryController(TradeReadRepository trades, History history, LiveFeed liveFeed, SummaryService summary) {
         this.trades = trades;
         this.history = history;
         this.liveFeed = liveFeed;
-        this.clock = clock;
+        this.summary = summary;
     }
 
-    public record TradePage(long total, int page, int size, List<StoredTrade> items) {
-    }
-
-    public record Summary(LocalDate businessDate, String businessZone, long trades, long expired, long accepted,
-            long replaced, long rejectedLowerVersion, long rejectedMaturityPassed) {
+    /**
+     * One page of the store. {@code total} is exact up to 10,000 ({@code totalExact} says whether it
+     * is); {@code next} is the cursor for the following page, or null on the last page.
+     */
+    public record TradePage(long total, boolean totalExact, int size, List<StoredTrade> items, Cursor next) {
     }
 
     @GetMapping("/trades")
     public TradePage trades(@RequestParam(required = false) String tradeId,
-            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size) {
+            @RequestParam(required = false) String afterTradeId, @RequestParam(required = false) Integer afterVersion,
+            @RequestParam(defaultValue = "50") int size) {
+        if (tradeId != null && !TRADE_ID.matcher(tradeId).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "tradeId may use letters, digits, dot, underscore and hyphen, up to 64 characters");
+        }
+        if ((afterTradeId == null) != (afterVersion == null)
+                || (afterTradeId != null && !TRADE_ID.matcher(afterTradeId).matches())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "afterTradeId and afterVersion must be given together and be valid");
+        }
         int pageSize = Math.clamp(size, 1, MAX_PAGE);
-        int pageIndex = Math.max(page, 0);
-        return new TradePage(trades.count(tradeId), pageIndex, pageSize,
-                trades.find(tradeId, pageSize, pageIndex * pageSize));
+        Cursor after = afterTradeId == null ? null : new Cursor(afterTradeId, afterVersion);
+        // One extra row tells whether another page follows.
+        List<StoredTrade> rows = trades.find(tradeId, after, pageSize + 1);
+        boolean more = rows.size() > pageSize;
+        List<StoredTrade> items = more ? rows.subList(0, pageSize) : rows;
+        StoredTrade last = items.isEmpty() ? null : items.get(items.size() - 1);
+        TradeReadRepository.Count count = trades.count(tradeId);
+        return new TradePage(count.total(), count.exact(), pageSize, items,
+                more ? new Cursor(last.tradeId(), last.version()) : null);
     }
 
     @GetMapping("/events")
@@ -58,16 +76,17 @@ public class QueryController {
     }
 
     @GetMapping("/summary")
-    public Summary summary() {
-        return new Summary(LocalDate.now(clock), clock.getZone().getId(), trades.count(null), trades.countExpired(),
-                history.countEvents(TradeEventType.ACCEPTED.name()),
-                history.countEvents(TradeEventType.REPLACED.name()),
-                history.countRejections(RejectionReason.LOWER_VERSION.name()),
-                history.countRejections(RejectionReason.MATURITY_DATE_PASSED.name()));
+    public SummaryService.Summary summary() {
+        return summary.get();
     }
 
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream() {
         return liveFeed.subscribe();
+    }
+
+    @ExceptionHandler(LiveFeed.TooManySubscribersException.class)
+    ProblemDetail tooManyDashboards(LiveFeed.TooManySubscribersException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
     }
 }
