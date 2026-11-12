@@ -118,7 +118,7 @@ services:
       TRADE_SECURITY_USERNAME: ${TRADE_SECURITY_USERNAME:-admin}
       TRADE_SECURITY_PASSWORD: ${TRADE_SECURITY_PASSWORD:-admin@2026!}
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 5s
       retries: 20
     depends_on: [trade-query-service, trade-simulator]

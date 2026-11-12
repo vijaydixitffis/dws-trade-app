@@ -121,6 +121,56 @@
   </build>
 
   <profiles>
+    <!--
+      Starts and stops the whole system on Docker (Kafka, PostgreSQL, MongoDB, the five services and
+      the dashboard). It only runs docker compose, so it is run on this parent project alone (-N):
+        mvn -N -Pdocker exec:exec@docker-up      build the images and start everything
+        mvn -N -Pdocker exec:exec@docker-down    stop everything and remove the data
+      Docker must be running. Dashboard: http://localhost:8080 (admin / admin@2026!).
+    -->
+    <profile>
+      <id>docker</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <version>3.7.0</version>
+            <configuration>
+              <executable>docker</executable>
+            </configuration>
+            <executions>
+              <execution>
+                <id>docker-up</id>
+                <configuration>
+                  <arguments>
+                    <argument>compose</argument>
+                    <argument>-f</argument>
+                    <argument>${project.basedir}/deploy/docker-compose.yml</argument>
+                    <argument>up</argument>
+                    <argument>--build</argument>
+                    <argument>-d</argument>
+                    <argument>--wait</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+              <execution>
+                <id>docker-down</id>
+                <configuration>
+                  <arguments>
+                    <argument>compose</argument>
+                    <argument>-f</argument>
+                    <argument>${project.basedir}/deploy/docker-compose.yml</argument>
+                    <argument>down</argument>
+                    <argument>-v</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
     <!-- mvn -Psecurity-scan verify : OWASP Dependency-Check, fails on CVSS >= 9 (critical) -->
     <profile>
       <id>security-scan</id>

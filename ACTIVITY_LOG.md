@@ -268,3 +268,12 @@ Known limits of this step: one shared account, no roles, no TLS, and the passwor
 | 91 | Fixed every one at its cause: `asString()`, `serialVersionUID`, a type-safe `ArgumentCaptor.captor()`, `isContentTooLarge()` | No compiler warnings remain |
 | 92 | Parent POM now compiles with `-Xlint:all` and `-Werror`, so a new warning fails the build | Annotation-processing notes are excluded |
 | 93 | Full backend build after the change | 139 tests pass in three of four runs. One run ended with BUILD FAILURE and 117 tests executed; its log was not kept and three later runs were clean, so the cause is unknown (possibly an intermittent test or a crashed test JVM). If it recurs, the CI artifact `backend-test-reports` will show it |
+
+### Prompt 14 (verbatim)
+
+> I have opened this project in Eclipse IDE and what maven target do I run so a local docker setup is run and I can run trade simulator from UI?
+
+| # | Action | Result |
+|---|---|---|
+| 94 | Told the user no Maven goal started Docker; added a `docker` profile to the parent POM with `exec:exec@docker-up` and `exec:exec@docker-down` (exec-maven-plugin 3.7.0, `docker compose up --build -d --wait`) | Run non-recursively (`-N`) on the parent project; README has the Eclipse steps |
+| 95 | `--wait` exposed a defect: the dashboard container reported unhealthy although it served pages, because inside the container `localhost` resolves to IPv6 first and nginx listens on IPv4 only | Health check now uses `127.0.0.1`; the container is healthy and the start goal succeeds. CI had not caught it because it did not use `--wait` |

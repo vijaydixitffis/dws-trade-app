@@ -106,6 +106,26 @@ Then start `CaptureApplication`, `ProcessorApplication`, `QueryApplication` and
 cd trade-dashboard-ui && npm install && npm run dev
 ```
 
+### Start the whole system from Maven (and from Eclipse)
+
+Docker must be running. From the repository root:
+
+```bash
+mvn -N -Pdocker exec:exec@docker-up
+```
+
+This builds the images and starts Kafka, PostgreSQL, MongoDB, the four services and the dashboard,
+and returns once they are healthy; the Spring services need about 20 more seconds before the
+dashboard shows data. Stop everything and delete the data with:
+
+```bash
+mvn -N -Pdocker exec:exec@docker-down
+```
+
+In Eclipse: right-click the parent project (`dws-trade-app`) → Run As → Maven build...; set Goals to
+`exec:exec@docker-up`, Profiles to `docker`, and tick "Non-recursive". Then open
+http://localhost:8080 and sign in as `admin` / `admin@2026!`.
+
 ### Eclipse
 
 File → Import → Maven → Existing Maven Projects, select the repository root and import the
