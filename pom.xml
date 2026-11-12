@@ -18,6 +18,7 @@
 
   <modules>
     <module>trade-common</module>
+    <module>trade-security</module>
     <module>trade-capture-service</module>
     <module>trade-processor-service</module>
     <module>trade-query-service</module>
@@ -38,6 +39,11 @@
       <dependency>
         <groupId>com.dws.trade</groupId>
         <artifactId>trade-common</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.dws.trade</groupId>
+        <artifactId>trade-security</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
