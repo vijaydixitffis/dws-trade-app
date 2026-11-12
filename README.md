@@ -144,7 +144,7 @@ parent and the six modules. Use a Java 21 JRE.
 | Security: scopes, deny by default, limits | `trade-security` | 28 | No |
 | Store rules, concurrency, outbox, expiry, lock | `trade-processor-service` | 37 | Yes |
 | HTTP contracts, Kafka publishing | `trade-capture-service` | 14 | Some |
-| Paging and index plans, history, live feed, outages | `trade-query-service` | 30 | Yes |
+| Paging and index plans, history, live feed, outages | `trade-query-service` | 31 | Yes |
 | Generator, pacing, run control, caps | `trade-simulator` | 22 | No |
 | Dashboard | `trade-dashboard-ui` (`npm test`) | 23 | No |
 | End-to-end regression | `deploy/regression.sh` against the running Compose stack | 33 checks | Yes |

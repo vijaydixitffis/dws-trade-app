@@ -286,3 +286,13 @@ Known limits of this step: one shared account, no roles, no TLS, and the passwor
 |---|---|---|
 | 96 | Diagnosed: Eclipse started from the Dock or Finder has a minimal PATH without `/usr/local/bin`; the shell that worked for me has it. `docker compose` also needs its helper programs on PATH | Confirmed by running `env -i PATH=/usr/bin:/bin:...` where `docker` is not found |
 | 97 | The `docker` profile now takes the program from `docker.executable` (full path `/Applications/Docker.app/Contents/Resources/bin/docker` on macOS through an OS-activated profile) and sets PATH for the child process to include Docker's folders | Tested under a stripped-down environment: BUILD SUCCESS, all containers healthy, dashboard returns 200 with the login. Not tested inside Eclipse itself |
+
+### Prompt 16 (verbatim)
+
+> Commit and push and Tag the repo with label "dev-13Nov2am"
+
+| # | Action | Result |
+|---|---|---|
+| 98 | Checked before tagging: nothing to commit, but CI on `3a419b8` had failed in `LiveFeedTest.aStuckSubscriberNeverBlocksPublishing...` (the same intermittent failure seen locally earlier, in the query-service module) | Tag withheld until fixed |
+| 99 | Cause: a real race in `LiveFeed`, not only a slow runner. A subscriber was treated as stuck only when its queue was full; if its writer thread took one message late the queue sat at 7 of 8 and the stuck subscriber was never dropped. A test for exactly that case (stuck in a send, queue has room) was written first and failed | Rule changed: stuck means a single send has run longer than the stall limit, or the queue is full and nothing moved for that long |
+| 100 | Verified | 140 backend tests pass; `LiveFeedTest` passed 5 of 5 runs under heavy CPU load |

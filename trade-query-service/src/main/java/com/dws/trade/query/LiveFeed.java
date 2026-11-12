@@ -16,8 +16,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * (which publishes from the Kafka listener thread) or any other browser.
  * <p>
  * The messages are "something changed" signals and the dashboard refetches the state, so when a
- * queue is full the oldest signal is discarded. A subscriber that has made no progress for
- * {@code stall-ms} while its queue is full is stuck and is dropped; its browser reconnects.
+ * queue is full the oldest signal is discarded. A subscriber is stuck, and is dropped so its
+ * browser reconnects, when a single send has been running longer than {@code stall-ms}, or when
+ * its queue is full and it has made no progress for that long.
  */
 @Component
 public class LiveFeed {
@@ -47,6 +48,9 @@ public class LiveFeed {
         volatile boolean closed;
         /** When the writer last finished a send (or when the subscriber joined). */
         volatile long lastProgressNanos = System.nanoTime();
+        /** True while the writer is inside a send, which began at {@link #sendStartedNanos}. */
+        volatile boolean sending;
+        volatile long sendStartedNanos;
 
         Subscriber(Sender sender, int capacity) {
             this.sender = sender;
@@ -58,7 +62,10 @@ public class LiveFeed {
             try {
                 while (!closed) {
                     Message message = queue.take();
+                    sendStartedNanos = System.nanoTime();
+                    sending = true;
                     sender.send(message.name(), message.data());
+                    sending = false;
                     lastProgressNanos = System.nanoTime();
                 }
             } catch (IOException | RuntimeException e) {
@@ -121,18 +128,23 @@ public class LiveFeed {
     /** Hands the message to every subscriber's queue and returns at once. */
     public void publish(String name, String json) {
         Message message = new Message(name, json);
+        long now = System.nanoTime();
         for (Subscriber subscriber : subscribers) {
-            if (subscriber.queue.offer(message)) {
-                continue;
-            }
-            if (System.nanoTime() - subscriber.lastProgressNanos > stallNanos) {
+            if (isStuck(subscriber, now)) {
                 drop(subscriber);
-            } else {
+            } else if (!subscriber.queue.offer(message)) {
                 // Busy, not stuck: keep the newest signal and discard the oldest.
                 subscriber.queue.poll();
                 subscriber.queue.offer(message);
             }
         }
+    }
+
+    private boolean isStuck(Subscriber subscriber, long now) {
+        boolean stuckInSend = subscriber.sending && now - subscriber.sendStartedNanos > stallNanos;
+        boolean fullAndNotMoving = subscriber.queue.remainingCapacity() == 0
+                && now - subscriber.lastProgressNanos > stallNanos;
+        return stuckInSend || fullAndNotMoving;
     }
 
     /** Keeps idle connections open through proxies that close silent ones. */

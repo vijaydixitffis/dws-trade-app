@@ -88,6 +88,39 @@ class LiveFeedTest {
     }
 
     @Test
+    void dropsASubscriberStuckInASendEvenWhenItsQueueHasRoom() throws Exception {
+        // A queue far larger than the traffic: "queue full" never happens, yet the subscriber is stuck.
+        LiveFeed feed = new LiveFeed(10, 100, 300);
+        CountDownLatch stuck = new CountDownLatch(1);
+        feed.subscribe(new LiveFeed.Sender() {
+            @Override
+            public void send(String name, String data) throws IOException {
+                try {
+                    stuck.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(e);
+                }
+            }
+
+            @Override
+            public void close() {
+                stuck.countDown();
+            }
+        });
+        Recording healthy = new Recording();
+        feed.subscribe(healthy);
+        feed.publish("trade-event", "{}");
+
+        Thread.sleep(500);
+        feed.heartbeat();
+
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(feed.subscriberCount()).isEqualTo(1));
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(healthy.received).contains("trade-event:{}", "heartbeat:{}"));
+    }
+
+    @Test
     void dropsASubscriberWhoseConnectionFails() {
         LiveFeed feed = new LiveFeed(10, 10, 5_000);
         feed.subscribe(new LiveFeed.Sender() {
