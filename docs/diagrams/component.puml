@@ -1,38 +1,54 @@
 @startuml component
-!pragma layout smetana
 title Trade Store - Component View
 skinparam componentStyle rectangle
-left to right direction
+skinparam defaultTextAlignment center
+skinparam nodesep 40
+skinparam ranksep 50
+top to bottom direction
 
-actor "Operations user" as user
+rectangle "Clients" as clients {
+  actor "Operations user" as user
+  component "trade-dashboard-ui\n(React)" as ui
+  component "trade-simulator\n(Spring Boot)" as sim
+}
 
-component "trade-simulator\n(Spring Boot)" as sim
-component "trade-dashboard-ui\n(React)" as ui
-component "trade-capture-service\n(Spring Boot REST)" as capture
-component "trade-processor-service\n(Spring Boot, Kafka consumer,\nexpiry scheduler)" as processor
-component "trade-query-service\n(Spring Boot REST + SSE)" as query
+component "trade-capture-service\n(REST: 202 / 422)" as capture
 
-queue "trades.inbound\n(key = tradeId)" as inbound
-queue "trades.events" as events
-queue "trades.rejected" as rejected
-queue "trades.inbound.DLT" as dlt
+rectangle "Apache Kafka" as kafka {
+  queue "trades.inbound\n(key = tradeId)" as inbound
+  queue "trades.events" as events
+  queue "trades.rejected" as rejected
+  queue "trades.inbound.DLT" as dlt
+  inbound -[hidden]right-> rejected
+  rejected -[hidden]right-> events
+  events -[hidden]right-> dlt
+}
 
-database "PostgreSQL\ntrade store" as pg
-database "MongoDB\nevents, rejections" as mongo
+rectangle "Processing and read side" as services {
+  component "trade-processor-service\n(rules, expiry job)" as processor
+  component "trade-query-service\n(REST + SSE)" as query
+  processor -[hidden]right-> query
+}
 
-user --> ui
-ui --> sim : start / stop load
-ui --> query : REST, SSE
-sim --> capture : POST /api/v1/trades
+rectangle "Storage" as storage {
+  database "PostgreSQL\ntrade store" as pg
+  database "MongoDB\nevents, rejections" as mongo
+  pg -[hidden]right-> mongo
+}
+
+user -right-> ui
+ui -right-> sim : start / stop
+ui -[norank]-> query : REST, SSE
+sim -down-> capture : POST trades
 capture --> inbound : valid trade
-capture --> rejected : past maturity (HTTP 422)
+capture --> rejected : past maturity
 inbound --> processor
-processor --> pg : atomic version check,\nupsert, mark expired
 processor --> events : ACCEPTED, REPLACED, EXPIRED
-processor --> rejected : lower version,\npast maturity
+processor --> rejected : lower version
 processor --> dlt : technical failure
+processor -down-> pg : atomic version check
 events --> query
 rejected --> query
-query --> mongo : project
-query --> pg : read trades
+query -down-> mongo : project
+query -down-> pg : read trades
 @enduml

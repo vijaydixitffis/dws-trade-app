@@ -129,3 +129,15 @@ For each backend phase the test classes were written first and committed with a 
 | 39 | Rebuilt and restarted the Compose stack, ran `deploy/regression.sh` | Regression passes on Spring Boot 4 |
 
 Earlier note about CVE-2026-68525 having no fixed Tomcat version is superseded: Tomcat 11.0.27 is not flagged.
+
+### Prompt 5 (verbatim)
+
+> Modify https://github.com/vijaydixitffis/dws-trade-app/blob/main/docs/diagrams/component.svg to a nice rectangular orientation rather than long horizontal diagram
+> Hold on to Phase 9 till I instruct
+
+| # | Action | Result |
+|---|---|---|
+| 40 | Redrew `docs/diagrams/component.puml` as layers: Clients, Capture, Kafka, Processing and read side, Storage | Size changed from about 1100 x 620 (very wide) to 905 x 755 |
+| 41 | Installed Graphviz (`brew install graphviz`) | The built-in layout engine placed boxes poorly; Graphviz gives a clean top-to-bottom flow. Re-render with `java -jar plantuml.jar -tsvg component.puml` |
+| 42 | Re-rendered `component.svg` and checked the image | Dashboard-to-query arrow still crosses the diagram on its way down; left as is |
+| 43 | Phase 9 | On hold until instructed |
