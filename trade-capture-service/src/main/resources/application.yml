@@ -1,0 +1,32 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: trade-capture-service
+  threads:
+    virtual:
+      enabled: true
+  mvc:
+    problemdetails:
+      enabled: true
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      acks: all
+      compression-type: lz4
+      properties:
+        enable.idempotence: true
+        # Wait a few milliseconds to fill a batch; raises throughput under load.
+        linger.ms: 5
+
+trade:
+  # Time zone that defines "today". Empty = the server's own zone. Example: Europe/London
+  business-zone: ""
+  inbound-partitions: 6
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
