@@ -11,11 +11,19 @@ export interface StoredTrade extends Trade {
   expired: boolean;
 }
 
+/** Where the previous page ended; sent back to the server to get the next page. */
+export interface Cursor {
+  tradeId: string;
+  version: number;
+}
+
 export interface TradePage {
+  /** Exact up to 10,000; above that the server stops counting and totalExact is false. */
   total: number;
-  page: number;
+  totalExact: boolean;
   size: number;
   items: StoredTrade[];
+  next: Cursor | null;
 }
 
 export type RejectionReason = 'LOWER_VERSION' | 'MATURITY_DATE_PASSED' | 'INVALID_TRADE';
@@ -39,6 +47,7 @@ export interface Summary {
   replaced: number;
   rejectedLowerVersion: number;
   rejectedMaturityPassed: number;
+  rejectedInvalid: number;
 }
 
 export interface SimulationRequest {

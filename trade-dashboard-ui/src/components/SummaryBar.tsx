@@ -19,6 +19,7 @@ export function SummaryBar({ summary }: { summary: Summary }) {
       <Tile label="Replaced (same version)" value={summary.replaced} />
       <Tile label="Rejected: lower version" value={summary.rejectedLowerVersion} />
       <Tile label="Rejected: maturity passed" value={summary.rejectedMaturityPassed} />
+      <Tile label="Rejected: invalid trade" value={summary.rejectedInvalid} />
     </section>
   );
 }

@@ -337,17 +337,20 @@ test('ignores a slow answer to a request that has since been replaced', async ()
   const fresh = { ...trades, items: [{ ...trades.items[0], tradeId: 'NEW1' }] };
   stubFetch({
     handler: (url: string) => {
-      if (!url.includes('/trades?')) {
-        return undefined;
+      if (/tradeId=N(&|$)/.test(url)) {
+        return slow(old, 1200); // the answer to the older filter arrives last
       }
-      return url.includes('tradeId=N') ? fresh : slow(old, 800);
+      return url.includes('tradeId=Ne') ? fresh : undefined;
     },
   });
   render(<App />);
+  const input = await screen.findByPlaceholderText('e.g. T2');
 
-  await userEvent.type(screen.getByPlaceholderText('e.g. T2'), 'N');
+  await userEvent.type(input, 'N');
+  await waitFor(() => expect(calls.some((call) => /tradeId=N(&|$)/.test(call.url))).toBe(true));
+  await userEvent.type(input, 'e');
   expect(await screen.findByText('NEW1')).toBeInTheDocument();
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  await new Promise((resolve) => setTimeout(resolve, 1500));
 
   expect(screen.queryByText('OLD1')).not.toBeInTheDocument();
   expect(screen.getByText('NEW1')).toBeInTheDocument();

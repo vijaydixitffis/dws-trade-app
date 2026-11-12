@@ -1,4 +1,4 @@
-import type { Rejection, SimulationRequest, SimulationStatus, Summary, TradePage } from './types';
+import type { Cursor, Rejection, SimulationRequest, SimulationStatus, Summary, TradePage } from './types';
 
 // Same-origin paths. The web server that serves this page (nginx, or Vite in development)
 // forwards them to the services, so the browser's Basic authentication applies to every call.
@@ -13,24 +13,29 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export function fetchSummary(): Promise<Summary> {
-  return json(`${QUERY_URL}/api/v1/summary`);
+export function fetchSummary(signal?: AbortSignal): Promise<Summary> {
+  return json(`${QUERY_URL}/api/v1/summary`, { signal });
 }
 
-export function fetchTrades(tradeId: string, page: number, size: number): Promise<TradePage> {
-  const params = new URLSearchParams({ page: String(page), size: String(size) });
+/** One page of the store, after the cursor the server returned with the previous page. */
+export function fetchTrades(tradeId: string, after: Cursor | null, size: number, signal?: AbortSignal): Promise<TradePage> {
+  const params = new URLSearchParams({ size: String(size) });
   if (tradeId.trim()) {
     params.set('tradeId', tradeId.trim());
   }
-  return json(`${QUERY_URL}/api/v1/trades?${params}`);
+  if (after) {
+    params.set('afterTradeId', after.tradeId);
+    params.set('afterVersion', String(after.version));
+  }
+  return json(`${QUERY_URL}/api/v1/trades?${params}`, { signal });
 }
 
-export function fetchRejections(): Promise<Rejection[]> {
-  return json(`${QUERY_URL}/api/v1/rejections?limit=200`);
+export function fetchRejections(signal?: AbortSignal): Promise<Rejection[]> {
+  return json(`${QUERY_URL}/api/v1/rejections?limit=200`, { signal });
 }
 
-export function fetchSimulation(): Promise<SimulationStatus> {
-  return json(`${SIMULATOR_URL}/api/v1/simulations/current`);
+export function fetchSimulation(signal?: AbortSignal): Promise<SimulationStatus> {
+  return json(`${SIMULATOR_URL}/api/v1/simulations/current`, { signal });
 }
 
 export type StartResult = { ok: true; status: SimulationStatus } | { ok: false; message: string };

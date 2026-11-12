@@ -3,22 +3,25 @@ import type { TradePage } from '../types';
 
 interface Props {
   page: TradePage;
+  /** 1-based number of the page shown. */
+  pageNumber: number;
   filter: string;
   onFilter: (value: string) => void;
-  onPage: (page: number) => void;
+  onPrevious: () => void;
+  onNext: () => void;
 }
 
-export function TradeTable({ page, filter, onFilter, onPage }: Props) {
-  const lastPage = Math.max(0, Math.ceil(page.total / page.size) - 1);
+export function TradeTable({ page, pageNumber, filter, onFilter, onPrevious, onNext }: Props) {
+  const rows = `${formatCount(page.total)}${page.totalExact ? '' : '+'}`;
   return (
     <div>
       <div className="toolbar">
         <label>
           Trade Id starts with{' '}
-          <input value={filter} onChange={(e) => onFilter(e.target.value)} placeholder="e.g. T2" />
+          <input value={filter} onChange={(e) => onFilter(e.target.value)} placeholder="e.g. T2" maxLength={64} />
         </label>
         <span className="muted">
-          {formatCount(page.total)} row{page.total === 1 ? '' : 's'}, ordered by Trade Id then highest version
+          {rows} row{page.total === 1 && page.totalExact ? '' : 's'}, ordered by Trade Id then highest version
         </span>
       </div>
       <table>
@@ -57,13 +60,11 @@ export function TradeTable({ page, filter, onFilter, onPage }: Props) {
         </tbody>
       </table>
       <div className="pager">
-        <button onClick={() => onPage(page.page - 1)} disabled={page.page <= 0}>
+        <button onClick={onPrevious} disabled={pageNumber <= 1}>
           Previous
         </button>
-        <span>
-          Page {page.page + 1} of {lastPage + 1}
-        </span>
-        <button onClick={() => onPage(page.page + 1)} disabled={page.page >= lastPage}>
+        <span>Page {pageNumber}</span>
+        <button onClick={onNext} disabled={page.next === null}>
           Next
         </button>
       </div>
