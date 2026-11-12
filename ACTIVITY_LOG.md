@@ -110,3 +110,4 @@ For each backend phase the test classes were written first and committed with a 
 
 - Phase 9 (load run with recorded throughput figures, tuning, class diagrams).
 - OWASP Dependency-Check has not been run: it needs an NVD API key. Trivy has not been run locally; it runs in the pipeline.
+- First pipeline run (43247039332): backend, dashboard and end-to-end regression jobs passed; the vulnerability scan job failed before scanning because the Trivy action tag `0.33.1` does not exist. Corrected to `v0.36.0` and pushed again.
