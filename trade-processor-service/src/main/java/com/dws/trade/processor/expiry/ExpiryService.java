@@ -3,7 +3,7 @@ package com.dws.trade.processor.expiry;
 import com.dws.trade.event.TradeEvent;
 import com.dws.trade.event.TradeEventType;
 import com.dws.trade.model.StoredTrade;
-import com.dws.trade.processor.OutcomePublisher;
+import com.dws.trade.processor.outbox.OutboxWriter;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
@@ -12,7 +12,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Rule 3: marks every trade whose maturity date has passed as expired. */
+/**
+ * Rule 3: marks every trade whose maturity date has passed as expired. Each batch marks its rows
+ * and writes their events to the outbox in one transaction, so a trade is never expired without
+ * its event being on the way.
+ */
 public class ExpiryService {
 
     private static final Logger log = LoggerFactory.getLogger(ExpiryService.class);
@@ -31,15 +35,15 @@ public class ExpiryService {
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
-    private final OutcomePublisher publisher;
+    private final OutboxWriter outbox;
     private final Clock clock;
     private final int batchSize;
 
-    public ExpiryService(JdbcTemplate jdbc, TransactionTemplate transaction, OutcomePublisher publisher,
-            Clock clock, int batchSize) {
+    public ExpiryService(JdbcTemplate jdbc, TransactionTemplate transaction, OutboxWriter outbox, Clock clock,
+            int batchSize) {
         this.jdbc = jdbc;
         this.transaction = transaction;
-        this.publisher = publisher;
+        this.outbox = outbox;
         this.clock = clock;
         this.batchSize = batchSize;
     }
@@ -48,20 +52,24 @@ public class ExpiryService {
     public int expireMatured() {
         LocalDate today = LocalDate.now(clock);
         int total = 0;
-        List<StoredTrade> batch;
+        int batch;
         do {
-            batch = transaction.execute(status -> jdbc.query(EXPIRE_BATCH,
-                    (rs, row) -> new StoredTrade(rs.getString("trade_id"), rs.getInt("version"),
-                            rs.getString("counter_party_id"), rs.getString("book_id"),
-                            rs.getObject("maturity_date", LocalDate.class),
-                            rs.getObject("created_date", LocalDate.class), true),
-                    today, batchSize));
-            for (StoredTrade trade : batch) {
-                publisher.event(new TradeEvent("expired-%s-%d".formatted(trade.tradeId(), trade.version()),
-                        TradeEventType.EXPIRED, trade, clock.instant()));
-            }
-            total += batch.size();
-        } while (batch.size() == batchSize);
+            Integer expired = transaction.execute(status -> {
+                List<StoredTrade> trades = jdbc.query(EXPIRE_BATCH,
+                        (rs, row) -> new StoredTrade(rs.getString("trade_id"), rs.getInt("version"),
+                                rs.getString("counter_party_id"), rs.getString("book_id"),
+                                rs.getObject("maturity_date", LocalDate.class),
+                                rs.getObject("created_date", LocalDate.class), true),
+                        today, batchSize);
+                for (StoredTrade trade : trades) {
+                    outbox.write(new TradeEvent("expired-%s-%d".formatted(trade.tradeId(), trade.version()),
+                            TradeEventType.EXPIRED, trade, clock.instant()));
+                }
+                return trades.size();
+            });
+            batch = expired == null ? 0 : expired;
+            total += batch;
+        } while (batch == batchSize);
         if (total > 0) {
             log.info("Marked {} trade(s) expired; maturity date before {}", total, today);
         }

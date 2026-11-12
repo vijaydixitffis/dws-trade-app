@@ -2,6 +2,8 @@ package com.dws.trade.processor.config;
 
 import com.dws.trade.event.Topics;
 import com.dws.trade.processor.OutcomePublisher;
+import com.dws.trade.processor.outbox.OutboxRelay;
+import com.dws.trade.processor.outbox.OutboxWriter;
 import com.dws.trade.processor.expiry.ExpiryService;
 import com.dws.trade.time.BusinessClock;
 import tools.jackson.core.JacksonException;
@@ -81,9 +83,20 @@ public class ProcessorConfig {
     }
 
     @Bean
-    ExpiryService expiryService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
-            OutcomePublisher publisher, Clock clock, @Value("${trade.expiry.batch-size}") int batchSize) {
-        return new ExpiryService(jdbc, new TransactionTemplate(transactionManager), publisher, clock, batchSize);
+    TransactionTemplate transactionTemplate(PlatformTransactionManager transactionManager) {
+        return new TransactionTemplate(transactionManager);
+    }
+
+    @Bean
+    ExpiryService expiryService(JdbcTemplate jdbc, TransactionTemplate transaction, OutboxWriter outbox, Clock clock,
+            @Value("${trade.expiry.batch-size}") int batchSize) {
+        return new ExpiryService(jdbc, transaction, outbox, clock, batchSize);
+    }
+
+    @Bean
+    OutboxRelay outboxRelay(JdbcTemplate jdbc, TransactionTemplate transaction, OutcomePublisher publisher,
+            @Value("${trade.outbox.batch-size}") int batchSize) {
+        return new OutboxRelay(jdbc, transaction, publisher, batchSize);
     }
 
     @Bean

@@ -3,6 +3,7 @@ package com.dws.trade.query;
 import static org.springframework.data.mongodb.core.query.Criteria.where;
 
 import java.util.List;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
@@ -18,12 +19,30 @@ public class History {
         this.mongo = mongo;
     }
 
-    public void save(EventDocument event) {
-        mongo.save(event);
+    /**
+     * Stores the event unless one with the same id exists. After a crash the processor may
+     * describe a reprocessed record differently (REPLACED instead of ACCEPTED); the history keeps
+     * what was said first.
+     *
+     * @return true if the event was new
+     */
+    public boolean insert(EventDocument event) {
+        try {
+            mongo.insert(event);
+            return true;
+        } catch (DuplicateKeyException e) {
+            return false;
+        }
     }
 
-    public void save(RejectionDocument rejection) {
-        mongo.save(rejection);
+    /** @return true if the rejection was new */
+    public boolean insert(RejectionDocument rejection) {
+        try {
+            mongo.insert(rejection);
+            return true;
+        } catch (DuplicateKeyException e) {
+            return false;
+        }
     }
 
     public List<EventDocument> latestEvents(int limit) {

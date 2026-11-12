@@ -29,8 +29,12 @@ public class TradeStore {
             WHERE trade_latest.latest_version <= EXCLUDED.latest_version
             """;
 
-    /** Inserts or replaces the row; {@code xmax = 0} is true only for a freshly inserted row. */
+    /**
+     * Inserts or replaces the row and says which it did. The version claim above holds a lock on
+     * this trade, so no other writer can add the row between the existence check and the upsert.
+     */
     private static final String UPSERT_TRADE = """
+            WITH existing AS (SELECT 1 FROM trade WHERE trade_id = ? AND version = ?)
             INSERT INTO trade (trade_id, version, counter_party_id, book_id, maturity_date, created_date, expired)
             VALUES (?, ?, ?, ?, ?, ?, 'N')
             ON CONFLICT (trade_id, version) DO UPDATE SET
@@ -39,7 +43,7 @@ public class TradeStore {
                 maturity_date    = EXCLUDED.maturity_date,
                 created_date     = EXCLUDED.created_date,
                 expired          = 'N'
-            RETURNING (xmax = 0) AS inserted
+            RETURNING EXISTS (SELECT 1 FROM existing) AS replaced
             """;
 
     private final JdbcTemplate jdbc;
@@ -63,10 +67,10 @@ public class TradeStore {
             throw new LowerVersionTradeException(trade.tradeId(), trade.version(), stored);
         }
 
-        Boolean inserted = jdbc.queryForObject(UPSERT_TRADE, Boolean.class, trade.tradeId(), trade.version(),
-                trade.counterPartyId(), trade.bookId(), trade.maturityDate(), today);
+        Boolean replaced = jdbc.queryForObject(UPSERT_TRADE, Boolean.class, trade.tradeId(), trade.version(),
+                trade.tradeId(), trade.version(), trade.counterPartyId(), trade.bookId(), trade.maturityDate(), today);
         StoredTrade stored = new StoredTrade(trade.tradeId(), trade.version(), trade.counterPartyId(),
                 trade.bookId(), trade.maturityDate(), today, false);
-        return new StoreResult(stored, !Boolean.TRUE.equals(inserted));
+        return new StoreResult(stored, Boolean.TRUE.equals(replaced));
     }
 }

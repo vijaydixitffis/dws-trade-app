@@ -33,6 +33,14 @@ trade:
     # Seconds minutes hours day month weekday, in the business zone. "-" disables the schedule.
     cron: "0 1 0 * * *"
     batch-size: 500
+    # Also run once at start-up, in the background, to catch trades that matured while down.
+    run-on-startup: true
+    lock-at-least: PT5S
+  outbox:
+    # Events are saved with the change they describe and published by a relay; how often it
+    # looks for waiting events and how many it sends at once.
+    interval-ms: 200
+    batch-size: 500
   retry:
     # Failures other than unreadable records and constraint violations are retried with
     # exponential back-off, so a short database or broker outage only delays trades.

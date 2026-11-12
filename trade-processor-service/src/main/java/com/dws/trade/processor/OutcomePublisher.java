@@ -1,12 +1,15 @@
 package com.dws.trade.processor;
 
-import com.dws.trade.event.TradeEvent;
 import com.dws.trade.event.TradeRejection;
+import com.dws.trade.processor.outbox.OutboundMessage;
+import java.util.List;
 
-/** Announces what happened to a trade. Implementations return only once the outcome is durable. */
+/** Announces outcomes on Kafka. Implementations return only once Kafka has acknowledged them. */
 public interface OutcomePublisher {
 
-    void event(TradeEvent event);
-
+    /** Publishes a rejection. Rejections change nothing in the store, so they are sent directly. */
     void rejection(TradeRejection rejection);
+
+    /** Publishes outbox messages in order and waits for the broker to acknowledge all of them. */
+    void sendAll(List<OutboundMessage> messages);
 }

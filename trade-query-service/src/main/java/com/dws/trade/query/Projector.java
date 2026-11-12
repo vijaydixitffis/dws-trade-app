@@ -25,15 +25,17 @@ public class Projector {
     @KafkaListener(topics = Topics.EVENTS)
     public void onEvent(String json) throws JacksonException {
         TradeEvent event = mapper.readValue(json, TradeEvent.class);
-        history.save(new EventDocument(event.eventId(), event.type(), event.trade(), event.at()));
-        liveFeed.publish("trade-event", json);
+        if (history.insert(new EventDocument(event.eventId(), event.type(), event.trade(), event.at()))) {
+            liveFeed.publish("trade-event", json);
+        }
     }
 
     @KafkaListener(topics = Topics.REJECTED)
     public void onRejection(String json) throws JacksonException {
         TradeRejection rejection = mapper.readValue(json, TradeRejection.class);
-        history.save(new RejectionDocument(rejection.eventId(), rejection.reason(), rejection.message(),
-                rejection.trade(), rejection.source(), rejection.at()));
-        liveFeed.publish("trade-rejection", json);
+        if (history.insert(new RejectionDocument(rejection.eventId(), rejection.reason(), rejection.message(),
+                rejection.trade(), rejection.source(), rejection.at()))) {
+            liveFeed.publish("trade-rejection", json);
+        }
     }
 }
