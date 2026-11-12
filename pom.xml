@@ -61,6 +61,21 @@
 
   <build>
     <plugins>
+      <!-- Show every compiler warning (deprecation, unchecked, serialization...) so none goes unnoticed. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <showWarnings>true</showWarnings>
+          <compilerArgs>
+            <arg>-Xlint:all</arg>
+            <!-- Annotation processors are not used; the messages about them add only noise. -->
+            <arg>-Xlint:-processing</arg>
+            <!-- A new warning fails the build, so the code stays warning-free. -->
+            <arg>-Werror</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
       <!-- Coverage gate: the build fails when line coverage drops below ${coverage.minimum} -->
       <plugin>
         <groupId>org.jacoco</groupId>

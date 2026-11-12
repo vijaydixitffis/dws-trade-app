@@ -116,16 +116,16 @@ class ProcessorIntegrationTest {
         send(id, trade(id, 2, "B2", future));
         send(id, trade(id, 1, "B3", future));
 
-        assertThat(awaitOutcome(Topics.EVENTS, id, 1).get("type").asText()).isEqualTo("ACCEPTED");
-        assertThat(awaitOutcome(Topics.EVENTS, id, 2).get("type").asText()).isEqualTo("ACCEPTED");
+        assertThat(awaitOutcome(Topics.EVENTS, id, 1).get("type").asString()).isEqualTo("ACCEPTED");
+        assertThat(awaitOutcome(Topics.EVENTS, id, 2).get("type").asString()).isEqualTo("ACCEPTED");
         JsonNode replaced = awaitOutcome(Topics.EVENTS, id, 3);
-        assertThat(replaced.get("type").asText()).isEqualTo("REPLACED");
-        assertThat(replaced.get("trade").get("bookId").asText()).isEqualTo("B2");
-        assertThat(replaced.get("eventId").asText()).startsWith(Topics.INBOUND + "-");
+        assertThat(replaced.get("type").asString()).isEqualTo("REPLACED");
+        assertThat(replaced.get("trade").get("bookId").asString()).isEqualTo("B2");
+        assertThat(replaced.get("eventId").asString()).startsWith(Topics.INBOUND + "-");
 
         JsonNode rejection = awaitOutcome(Topics.REJECTED, id, 1);
-        assertThat(rejection.get("reason").asText()).isEqualTo("LOWER_VERSION");
-        assertThat(rejection.get("source").asText()).isEqualTo("PROCESSOR");
+        assertThat(rejection.get("reason").asString()).isEqualTo("LOWER_VERSION");
+        assertThat(rejection.get("source").asString()).isEqualTo("PROCESSOR");
 
         assertThat(jdbc.queryForList("SELECT version || ':' || book_id FROM trade WHERE trade_id = ? ORDER BY version",
                 String.class, id)).containsExactly("1:B1", "2:B2");
@@ -136,7 +136,7 @@ class ProcessorIntegrationTest {
         String id = "IT-OLD-" + System.nanoTime();
         send(id, trade(id, 1, "B1", LocalDate.now().minusDays(2)));
 
-        assertThat(awaitOutcome(Topics.REJECTED, id, 1).get("reason").asText()).isEqualTo("MATURITY_DATE_PASSED");
+        assertThat(awaitOutcome(Topics.REJECTED, id, 1).get("reason").asString()).isEqualTo("MATURITY_DATE_PASSED");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM trade WHERE trade_id = ?", Integer.class, id)).isZero();
     }
 
@@ -148,7 +148,7 @@ class ProcessorIntegrationTest {
         send(good, trade(good, 1, "B1", future));
 
         assertThat(awaitRecord(Topics.INBOUND_DLT, bad, 1).value()).isEqualTo("this is not json");
-        assertThat(awaitOutcome(Topics.EVENTS, good, 1).get("type").asText()).isEqualTo("ACCEPTED");
+        assertThat(awaitOutcome(Topics.EVENTS, good, 1).get("type").asString()).isEqualTo("ACCEPTED");
     }
 
     @Test
@@ -161,14 +161,14 @@ class ProcessorIntegrationTest {
         send(good, trade(good, 1, "B1", future));
 
         JsonNode first = awaitOutcome(Topics.REJECTED, incomplete, 1);
-        assertThat(first.get("reason").asText()).isEqualTo("INVALID_TRADE");
-        assertThat(first.get("source").asText()).isEqualTo("PROCESSOR");
-        assertThat(first.get("message").asText()).contains("counterPartyId");
+        assertThat(first.get("reason").asString()).isEqualTo("INVALID_TRADE");
+        assertThat(first.get("source").asString()).isEqualTo("PROCESSOR");
+        assertThat(first.get("message").asString()).contains("counterPartyId");
         JsonNode second = awaitOutcome(Topics.REJECTED, tooLong, 1);
-        assertThat(second.get("reason").asText()).isEqualTo("INVALID_TRADE");
-        assertThat(second.get("message").asText()).contains("tradeId");
+        assertThat(second.get("reason").asString()).isEqualTo("INVALID_TRADE");
+        assertThat(second.get("message").asString()).contains("tradeId");
 
-        assertThat(awaitOutcome(Topics.EVENTS, good, 1).get("type").asText()).isEqualTo("ACCEPTED");
+        assertThat(awaitOutcome(Topics.EVENTS, good, 1).get("type").asString()).isEqualTo("ACCEPTED");
         assertNothingOn(Topics.INBOUND_DLT, incomplete);
         assertNothingOn(Topics.INBOUND_DLT, tooLong);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM trade WHERE trade_id = ?", Integer.class, tooLong)).isZero();
@@ -189,7 +189,7 @@ class ProcessorIntegrationTest {
             Containers.resume(Containers.POSTGRES);
         }
 
-        assertThat(awaitOutcome(Topics.EVENTS, during, 1).get("type").asText()).isEqualTo("ACCEPTED");
+        assertThat(awaitOutcome(Topics.EVENTS, during, 1).get("type").asString()).isEqualTo("ACCEPTED");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM trade WHERE trade_id = ?", Integer.class, during))
                 .isEqualTo(1);
         assertNothingOn(Topics.INBOUND_DLT, during);

@@ -26,7 +26,7 @@ class ConfiguredLimitsTest {
     void refusesALargeBodyWith413() throws Exception {
         mvc.perform(post("/api/v1/trades").with(httpBasic("admin", "admin@2026!"))
                         .contentType(MediaType.APPLICATION_JSON).content("x".repeat(500)))
-                .andExpect(status().isPayloadTooLarge());
+                .andExpect(status().isContentTooLarge());
     }
 
     @Test

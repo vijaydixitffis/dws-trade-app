@@ -28,6 +28,8 @@ public class RequestSizeLimitFilter extends OncePerRequestFilter {
 
     /** Thrown while reading a body that exceeds the limit. */
     static final class RequestTooLargeException extends IOException {
+        private static final long serialVersionUID = 1L;
+
         RequestTooLargeException(long maxBytes) {
             super("Request body exceeds " + maxBytes + " bytes");
         }

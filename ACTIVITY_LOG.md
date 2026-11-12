@@ -257,3 +257,14 @@ Known limits of this step: one shared account, no roles, no TLS, and the passwor
 - Phase 9 (load run and tuning) remains on hold.
 - OWASP Dependency-Check has not run (needs an NVD key).
 | 89 | First CI run of this work: backend, dashboard, regression, image scan and CodeQL passed; the dependency scans passed but the software bill of materials step failed because containerised Trivy was rate-limited by Maven Central (the same cause hit locally) | Mounted the runner's Maven cache into the step and pushed the fix |
+
+### Prompt 13 (verbatim summary)
+
+> The user pasted a list of files with deprecation warnings: `ProcessorIntegrationTest`, `QueryIntegrationTest`, `LowerVersionTradeException`, `MaturityDatePassedException`, `StreamUnavailableException`, `LiveFeed`, `TradeRejectedException` and `OutboxTest`, and said "These have deprecation warnings in the code".
+
+| # | Action | Result |
+|---|---|---|
+| 90 | Compiled with the full javac lint (`-Xlint:all`) to get each warning and its line | 27 deprecated `asText()` calls (Jackson 3 renamed it `asString()`) in two integration tests; 6 exception classes without `serialVersionUID`; one unchecked `ArgumentCaptor.forClass(List.class)` in `OutboxTest`. The full lint also found two the paste did not list: `RequestTooLargeException` (no `serialVersionUID`) and a deprecated Spring matcher `isPayloadTooLarge()` (renamed `isContentTooLarge()`) in `ConfiguredLimitsTest` |
+| 91 | Fixed every one at its cause: `asString()`, `serialVersionUID`, a type-safe `ArgumentCaptor.captor()`, `isContentTooLarge()` | No compiler warnings remain |
+| 92 | Parent POM now compiles with `-Xlint:all` and `-Werror`, so a new warning fails the build | Annotation-processing notes are excluded |
+| 93 | Full backend build after the change | 139 tests pass in three of four runs. One run ended with BUILD FAILURE and 117 tests executed; its log was not kept and three later runs were clean, so the cause is unknown (possibly an intermittent test or a crashed test JVM). If it recurs, the CI artifact `backend-test-reports` will show it |

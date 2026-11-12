@@ -30,6 +30,8 @@ public class LiveFeed {
     }
 
     public static class TooManySubscribersException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
         public TooManySubscribersException() {
             super("The live feed is at its limit of connected dashboards");
         }

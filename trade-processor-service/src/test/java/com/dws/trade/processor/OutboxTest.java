@@ -98,7 +98,7 @@ class OutboxTest {
         int published = relay.relay();
 
         assertThat(published).isEqualTo(3);
-        ArgumentCaptor<List<OutboundMessage>> sent = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<OutboundMessage>> sent = ArgumentCaptor.captor();
         verify(publisher).sendAll(sent.capture());
         assertThat(sent.getValue()).extracting(OutboundMessage::key).containsExactly("T1", "T2", "T1");
         assertThat(sent.getValue()).allSatisfy(m -> assertThat(m.topic()).isEqualTo(Topics.EVENTS));

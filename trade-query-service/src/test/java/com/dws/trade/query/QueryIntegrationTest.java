@@ -70,10 +70,10 @@ class QueryIntegrationTest {
         assertThat(page.get("total").asLong()).isEqualTo(3);
         assertThat(page.get("totalExact").asBoolean()).isTrue();
         assertThat(page.get("next").isNull()).isTrue();
-        assertThat(page.get("items")).extracting(t -> t.get("tradeId").asText() + ":" + t.get("version").asInt())
+        assertThat(page.get("items")).extracting(t -> t.get("tradeId").asString() + ":" + t.get("version").asInt())
                 .containsExactly("Q1:1", "Q2:2", "Q2:1");
         assertThat(page.get("items").get(0).get("expired").asBoolean()).isTrue();
-        assertThat(page.get("items").get(0).get("maturityDate").asText()).isEqualTo(maturity.toString());
+        assertThat(page.get("items").get(0).get("maturityDate").asString()).isEqualTo(maturity.toString());
     }
 
     @Test
@@ -86,14 +86,14 @@ class QueryIntegrationTest {
         jdbc.update("INSERT INTO trade VALUES ('P2', 2, 'CP-1', 'B1', ?, ?, 'N')", maturity, LocalDate.now());
 
         JsonNode first = api().getForObject("/api/v1/trades?size=2", JsonNode.class);
-        assertThat(first.get("items")).extracting(t -> t.get("tradeId").asText() + ":" + t.get("version").asInt())
+        assertThat(first.get("items")).extracting(t -> t.get("tradeId").asString() + ":" + t.get("version").asInt())
                 .containsExactly("P1:1", "P2:2");
         JsonNode next = first.get("next");
-        assertThat(next.get("tradeId").asText()).isEqualTo("P2");
+        assertThat(next.get("tradeId").asString()).isEqualTo("P2");
 
-        JsonNode second = api().getForObject("/api/v1/trades?size=2&afterTradeId=" + next.get("tradeId").asText()
+        JsonNode second = api().getForObject("/api/v1/trades?size=2&afterTradeId=" + next.get("tradeId").asString()
                 + "&afterVersion=" + next.get("version").asInt(), JsonNode.class);
-        assertThat(second.get("items")).extracting(t -> t.get("tradeId").asText() + ":" + t.get("version").asInt())
+        assertThat(second.get("items")).extracting(t -> t.get("tradeId").asString() + ":" + t.get("version").asInt())
                 .containsExactly("P2:1", "P3:1");
         assertThat(second.get("next").isNull()).isTrue();
     }
@@ -117,10 +117,10 @@ class QueryIntegrationTest {
 
         await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
             assertThat(api().getForObject("/api/v1/events?limit=500", JsonNode.class))
-                    .anyMatch(e -> e.get("id").asText().equals("ev-" + id));
+                    .anyMatch(e -> e.get("id").asString().equals("ev-" + id));
             assertThat(api().getForObject("/api/v1/rejections?limit=500", JsonNode.class))
-                    .anyMatch(r -> r.get("id").asText().equals("rj-" + id)
-                            && r.get("reason").asText().equals("LOWER_VERSION"));
+                    .anyMatch(r -> r.get("id").asString().equals("rj-" + id)
+                            && r.get("reason").asString().equals("LOWER_VERSION"));
         });
 
         JsonNode summary = api().getForObject("/api/v1/summary", JsonNode.class);
@@ -168,7 +168,7 @@ class QueryIntegrationTest {
 
         await().atMost(Duration.ofSeconds(90)).untilAsserted(() ->
                 assertThat(api().getForObject("/api/v1/events?limit=500", JsonNode.class))
-                        .anyMatch(e -> e.get("id").asText().equals("ev-" + id)));
+                        .anyMatch(e -> e.get("id").asString().equals("ev-" + id)));
     }
 
     @Test
@@ -180,7 +180,7 @@ class QueryIntegrationTest {
 
         await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
                 assertThat(api().getForObject("/api/v1/events?limit=500", JsonNode.class))
-                        .anyMatch(e -> e.get("id").asText().equals("ev-" + good)));
+                        .anyMatch(e -> e.get("id").asString().equals("ev-" + good)));
         assertThat(DeadLetters.keys(Containers.KAFKA.getBootstrapServers(), Topics.EVENTS + ".DLT")).contains(bad);
     }
 

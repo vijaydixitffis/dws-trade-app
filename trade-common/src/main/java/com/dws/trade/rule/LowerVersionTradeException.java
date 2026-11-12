@@ -4,6 +4,8 @@ import com.dws.trade.event.RejectionReason;
 
 /** Rule 1: a trade arrived with a version lower than the one already stored. */
 public class LowerVersionTradeException extends TradeRejectedException {
+    private static final long serialVersionUID = 1L;
+
 
     public LowerVersionTradeException(String tradeId, int incomingVersion, int storedVersion) {
         super(tradeId, RejectionReason.LOWER_VERSION,
