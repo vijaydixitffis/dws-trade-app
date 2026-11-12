@@ -68,10 +68,42 @@ class QueryIntegrationTest {
         JsonNode page = api().getForObject("/api/v1/trades", JsonNode.class);
 
         assertThat(page.get("total").asLong()).isEqualTo(3);
+        assertThat(page.get("totalExact").asBoolean()).isTrue();
+        assertThat(page.get("next").isNull()).isTrue();
         assertThat(page.get("items")).extracting(t -> t.get("tradeId").asText() + ":" + t.get("version").asInt())
                 .containsExactly("Q1:1", "Q2:2", "Q2:1");
         assertThat(page.get("items").get(0).get("expired").asBoolean()).isTrue();
         assertThat(page.get("items").get(0).get("maturityDate").asText()).isEqualTo(maturity.toString());
+    }
+
+    @Test
+    void pagesThroughTheStoreWithACursor() {
+        jdbc.update("TRUNCATE trade, trade_latest");
+        LocalDate maturity = LocalDate.now().plusYears(1);
+        for (String id : new String[] {"P1", "P2", "P3"}) {
+            jdbc.update("INSERT INTO trade VALUES (?, 1, 'CP-1', 'B1', ?, ?, 'N')", id, maturity, LocalDate.now());
+        }
+        jdbc.update("INSERT INTO trade VALUES ('P2', 2, 'CP-1', 'B1', ?, ?, 'N')", maturity, LocalDate.now());
+
+        JsonNode first = api().getForObject("/api/v1/trades?size=2", JsonNode.class);
+        assertThat(first.get("items")).extracting(t -> t.get("tradeId").asText() + ":" + t.get("version").asInt())
+                .containsExactly("P1:1", "P2:2");
+        JsonNode next = first.get("next");
+        assertThat(next.get("tradeId").asText()).isEqualTo("P2");
+
+        JsonNode second = api().getForObject("/api/v1/trades?size=2&afterTradeId=" + next.get("tradeId").asText()
+                + "&afterVersion=" + next.get("version").asInt(), JsonNode.class);
+        assertThat(second.get("items")).extracting(t -> t.get("tradeId").asText() + ":" + t.get("version").asInt())
+                .containsExactly("P2:1", "P3:1");
+        assertThat(second.get("next").isNull()).isTrue();
+    }
+
+    @Test
+    void refusesATradeIdFilterWithUnexpectedCharacters() {
+        assertThat(api().getForEntity("/api/v1/trades?tradeId=a b", String.class).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(api().getForEntity("/api/v1/trades?tradeId=" + "X".repeat(65), String.class).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
@@ -94,6 +126,7 @@ class QueryIntegrationTest {
         JsonNode summary = api().getForObject("/api/v1/summary", JsonNode.class);
         assertThat(summary.get("rejectedLowerVersion").asLong()).isGreaterThanOrEqualTo(1);
         assertThat(summary.get("accepted").asLong()).isGreaterThanOrEqualTo(1);
+        assertThat(summary.has("rejectedInvalid")).isTrue();
         assertThat(summary.has("trades")).isTrue();
         assertThat(summary.has("businessDate")).isTrue();
     }
