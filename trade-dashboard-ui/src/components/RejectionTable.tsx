@@ -4,6 +4,7 @@ import type { Rejection, RejectionReason } from '../types';
 const REASONS: Record<RejectionReason, string> = {
   LOWER_VERSION: 'Lower version',
   MATURITY_DATE_PASSED: 'Maturity date passed',
+  INVALID_TRADE: 'Invalid trade',
 };
 
 export function RejectionTable({ rejections }: { rejections: Rejection[] }) {
@@ -28,8 +29,8 @@ export function RejectionTable({ rejections }: { rejections: Rejection[] }) {
           {rejections.map((rejection) => (
             <tr key={rejection.id}>
               <td>{formatTime(rejection.at)}</td>
-              <td>{rejection.trade.tradeId}</td>
-              <td className="num">{rejection.trade.version}</td>
+              <td>{rejection.trade.tradeId ?? '-'}</td>
+              <td className="num">{rejection.trade.version ?? '-'}</td>
               <td>{formatDate(rejection.trade.maturityDate)}</td>
               <td>
                 <span className="pill pill-grey">{REASONS[rejection.reason] ?? rejection.reason}</span>

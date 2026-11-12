@@ -7,8 +7,7 @@ export const SIMULATOR_URL: string = import.meta.env.VITE_SIMULATOR_URL ?? '/sim
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
-  // 409 from the simulator still carries the current status in its body.
-  if (!response.ok && response.status !== 409) {
+  if (!response.ok) {
     throw new Error(`${response.status} from ${url}`);
   }
   return (await response.json()) as T;
@@ -34,12 +33,31 @@ export function fetchSimulation(): Promise<SimulationStatus> {
   return json(`${SIMULATOR_URL}/api/v1/simulations/current`);
 }
 
-export function startSimulation(request: SimulationRequest): Promise<SimulationStatus> {
-  return json(`${SIMULATOR_URL}/api/v1/simulations`, {
+export type StartResult = { ok: true; status: SimulationStatus } | { ok: false; message: string };
+
+/** Starts a run. A refusal is returned with the server's reason so the dialog can show it. */
+export async function startSimulation(request: SimulationRequest): Promise<StartResult> {
+  const response = await fetch(`${SIMULATOR_URL}/api/v1/simulations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
+  if (response.ok) {
+    return { ok: true, status: (await response.json()) as SimulationStatus };
+  }
+  if (response.status === 409) {
+    return { ok: false, message: 'Another run is already in progress.' };
+  }
+  let message = `The simulator refused the run (HTTP ${response.status}).`;
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    if (typeof body.detail === 'string' && body.detail) {
+      message = body.detail;
+    }
+  } catch {
+    // keep the generic message
+  }
+  return { ok: false, message };
 }
 
 export function stopSimulation(): Promise<SimulationStatus> {

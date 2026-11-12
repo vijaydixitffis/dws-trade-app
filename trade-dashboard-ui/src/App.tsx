@@ -89,12 +89,18 @@ export default function App() {
     };
   }, []);
 
-  const onStart = async (request: SimulationRequest) => {
+  /** @returns null when the run started, otherwise the reason it did not */
+  const onStart = async (request: SimulationRequest): Promise<string | null> => {
     try {
-      setSimulation(await startSimulation(request));
+      const result = await startSimulation(request);
+      if (!result.ok) {
+        return result.message;
+      }
+      setSimulation(result.status);
       setError(null);
+      return null;
     } catch {
-      setError('The simulator refused the run. Check the values and try again.');
+      return 'The simulator is not reachable.';
     }
   };
 

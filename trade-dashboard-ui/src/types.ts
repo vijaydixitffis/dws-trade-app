@@ -18,7 +18,7 @@ export interface TradePage {
   items: StoredTrade[];
 }
 
-export type RejectionReason = 'LOWER_VERSION' | 'MATURITY_DATE_PASSED';
+export type RejectionReason = 'LOWER_VERSION' | 'MATURITY_DATE_PASSED' | 'INVALID_TRADE';
 
 export interface Rejection {
   id: string;
@@ -26,7 +26,8 @@ export interface Rejection {
   message: string;
   source: string;
   at: string;
-  trade: Trade;
+  /** A trade that failed validation may be missing fields. */
+  trade: Partial<Trade>;
 }
 
 export interface Summary {

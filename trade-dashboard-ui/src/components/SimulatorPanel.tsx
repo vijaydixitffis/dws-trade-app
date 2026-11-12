@@ -5,7 +5,8 @@ import { Modal } from './Modal';
 
 interface Props {
   status: SimulationStatus | null;
-  onStart: (request: SimulationRequest) => Promise<void>;
+  /** Resolves to null when the run started, or to the reason the simulator refused it. */
+  onStart: (request: SimulationRequest) => Promise<string | null>;
   onStop: () => void;
 }
 
@@ -60,16 +61,66 @@ function mixTotal(bulk: Bulk): number {
   return bulk.higherVersionPct + bulk.sameVersionPct + bulk.lowerVersionPct + bulk.pastMaturityPct;
 }
 
+const inRange = (value: number, min: number, max: number) => Number.isInteger(value) && value >= min && value <= max;
+
+/** The same limits the simulator enforces, so a value it would refuse is caught before it is sent. */
+function bulkErrors(bulk: Bulk): string[] {
+  const errors: string[] = [];
+  if (!inRange(bulk.count, 1, 10_000_000)) {
+    errors.push('Trades to send must be between 1 and 10,000,000.');
+  }
+  if (!inRange(bulk.ratePerSecond, 1, 50_000)) {
+    errors.push('Trades per second must be between 1 and 50,000.');
+  }
+  const percentages = [bulk.higherVersionPct, bulk.sameVersionPct, bulk.lowerVersionPct, bulk.pastMaturityPct];
+  if (percentages.some((value) => !inRange(value, 0, 100))) {
+    errors.push('Each percentage must be between 0 and 100.');
+  } else if (mixTotal(bulk) > 100) {
+    errors.push('The four percentages must not exceed 100.');
+  }
+  return errors;
+}
+
+function varietyErrors(variety: Variety): string[] {
+  const errors: string[] = [];
+  if (!inRange(variety.minMaturityDays, 0, 3650) || !inRange(variety.maxMaturityDays, 0, 3650)) {
+    errors.push('Maturity days must be between 0 and 3,650.');
+  } else if (variety.maxMaturityDays < variety.minMaturityDays) {
+    errors.push('The latest maturity must not be before the earliest.');
+  }
+  const prefix = variety.tradeIdPrefix.trim();
+  if (prefix && !/^[A-Za-z0-9-]{1,16}$/.test(prefix)) {
+    errors.push('The trade id prefix may use letters, digits and hyphens, up to 16 characters.');
+  }
+  const lists = [parseList(variety.counterParties), parseList(variety.books)];
+  if (lists.some((names) => names.length > 100 || names.some((name) => name.length > 32))) {
+    errors.push('Counter-party and book names may be up to 32 characters, at most 100 of each.');
+  }
+  return errors;
+}
+
 export function SimulatorPanel({ status, onStart, onStop }: Props) {
   const [dialog, setDialog] = useState<'quick' | 'detailed' | null>(null);
   const [bulk, setBulk] = useState<Bulk>(DEFAULT_BULK);
   const [variety, setVariety] = useState<Variety>(DEFAULT_VARIETY);
+  const [refusal, setRefusal] = useState<string | null>(null);
   const running = status?.running ?? false;
   const available = status !== null && !running;
 
   const start = async (request: SimulationRequest) => {
-    await onStart(request);
+    setRefusal(null);
+    const message = await onStart(request);
+    if (message) {
+      // Keep the dialog open so the values can be corrected.
+      setRefusal(message);
+      return;
+    }
     setDialog(null);
+  };
+
+  const openDialog = (kind: 'quick' | 'detailed') => {
+    setRefusal(null);
+    setDialog(kind);
   };
 
   const startQuick = () => start({ ...bulk });
@@ -95,19 +146,17 @@ export function SimulatorPanel({ status, onStart, onStop }: Props) {
   };
 
   const total = mixTotal(bulk);
-  const mixError = total > 100 ? 'The four percentages must not exceed 100.' : null;
-  const windowError =
-    variety.maxMaturityDays < variety.minMaturityDays ? 'The latest maturity must not be before the earliest.' : null;
-  const countsValid = bulk.count >= 1 && bulk.ratePerSecond >= 1;
+  const quickErrors = bulkErrors(bulk);
+  const detailedErrors = [...bulkErrors(bulk), ...varietyErrors(variety)];
 
   return (
     <section className="panel" aria-label="Trade simulator">
       <h2>Trade simulator</h2>
       <div className="toolbar">
-        <button className="primary" onClick={() => setDialog('quick')} disabled={!available}>
+        <button className="primary" onClick={() => openDialog('quick')} disabled={!available}>
           Quick run
         </button>
-        <button className="primary" onClick={() => setDialog('detailed')} disabled={!available}>
+        <button className="primary" onClick={() => openDialog('detailed')} disabled={!available}>
           Detailed run
         </button>
         {running && <button onClick={onStop}>Stop run</button>}
@@ -141,10 +190,21 @@ export function SimulatorPanel({ status, onStart, onStop }: Props) {
               </label>
             ))}
           </div>
+          <div className="dialog-body">
+            {quickErrors.map((message) => (
+              <p className="error" key={message}>
+                {message}
+              </p>
+            ))}
+            {refusal && (
+              <p className="error" role="alert">
+                {refusal}
+              </p>
+            )}
+          </div>
           <div className="dialog-footer">
-            {mixError && <span className="muted">{mixError}</span>}
             <button onClick={() => setDialog(null)}>Cancel</button>
-            <button className="primary" onClick={startQuick} disabled={Boolean(mixError) || !countsValid}>
+            <button className="primary" onClick={startQuick} disabled={quickErrors.length > 0}>
               Start run
             </button>
           </div>
@@ -185,9 +245,7 @@ export function SimulatorPanel({ status, onStart, onStop }: Props) {
                 <span className="muted small">{hint}</span>
               </div>
             ))}
-            <p className={mixError ? 'error' : 'muted'}>
-              {mixError ?? `New trades: ${100 - total} %`}
-            </p>
+            <p className="muted">{`New trades: ${100 - total} %`}</p>
 
             <h3>Trade variety</h3>
             <div className="form-grid">
@@ -239,7 +297,16 @@ export function SimulatorPanel({ status, onStart, onStop }: Props) {
                 />
               </label>
             </div>
-            {windowError && <p className="error">{windowError}</p>}
+            {detailedErrors.map((message) => (
+              <p className="error" key={message}>
+                {message}
+              </p>
+            ))}
+            {refusal && (
+              <p className="error" role="alert">
+                {refusal}
+              </p>
+            )}
             <p className="muted small">
               Zero days ahead means the trade matures today, which is accepted. Reusing a prefix from an earlier run
               continues the same trade ids, so the store will replace or reject them by version.
@@ -250,7 +317,7 @@ export function SimulatorPanel({ status, onStart, onStop }: Props) {
             <button
               className="primary"
               onClick={startDetailed}
-              disabled={Boolean(mixError) || Boolean(windowError) || !countsValid}
+              disabled={detailedErrors.length > 0}
             >
               Start run
             </button>
